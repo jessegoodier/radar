@@ -15,6 +15,7 @@ export function CostCard({ onNavigate }: { onNavigate?: () => void }) {
 
 function CostCardContent({ data, onNavigate }: { data: OpenCostSummary; onNavigate?: () => void }) {
   const hourlyCost = data.totalHourlyCost ?? 0
+  const dailyCost = hourlyCost * 24
   const monthlyCost = hourlyCost * 730
   const namespaces = data.namespaces ?? []
   const topNamespaces = namespaces.slice(0, 5)
@@ -45,9 +46,9 @@ function CostCardContent({ data, onNavigate }: { data: OpenCostSummary; onNaviga
           <div className="flex items-baseline gap-3 mb-3">
             <div className="flex items-baseline gap-1">
               <span className="text-2xl font-bold text-theme-text-primary tabular-nums">
-                {formatCost(hourlyCost)}
+                {formatCost(dailyCost)}
               </span>
-              <span className="text-xs text-theme-text-tertiary">/hr</span>
+              <span className="text-xs text-theme-text-tertiary">/day</span>
             </div>
             <div className="flex items-baseline gap-1 text-theme-text-secondary">
               <span className="text-sm font-medium tabular-nums">~{formatCost(monthlyCost)}</span>
@@ -69,7 +70,7 @@ function CostCardContent({ data, onNavigate }: { data: OpenCostSummary; onNaviga
                     />
                   </div>
                   <span className="text-[10px] text-theme-text-tertiary tabular-nums w-14 text-right shrink-0">
-                    {formatCost(ns.hourlyCost)}/h
+                    {formatCost(ns.hourlyCost * 24)}/day
                   </span>
                 </div>
               )

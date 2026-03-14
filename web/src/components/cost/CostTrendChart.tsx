@@ -361,19 +361,21 @@ function ChartLegend({ series }: { series: OpenCostTrendSeries[] }) {
 }
 
 function formatCostAxis(value: number): string {
-  if (value >= 1000) return `$${(value / 1000).toFixed(0)}k`
-  if (value >= 1) return `$${value.toFixed(1)}`
-  if (value >= 0.01) return `$${value.toFixed(2)}`
-  if (value > 0) return `$${value.toFixed(3)}`
+  const dailyValue = value * 24
+  if (dailyValue >= 1000) return `$${(dailyValue / 1000).toFixed(0)}k`
+  if (dailyValue >= 1) return `$${dailyValue.toFixed(1)}`
+  if (dailyValue >= 0.01) return `$${dailyValue.toFixed(2)}`
+  if (dailyValue > 0) return `$${dailyValue.toFixed(3)}`
   return '$0'
 }
 
 function formatCostTooltip(value: number): string {
-  if (value >= 1000) return `$${(value / 1000).toFixed(1)}k/hr`
-  if (value >= 1) return `$${value.toFixed(2)}/hr`
-  if (value >= 0.01) return `$${value.toFixed(3)}/hr`
-  if (value > 0) return `$${value.toFixed(4)}/hr`
-  return '$0.00/hr'
+  const dailyValue = value * 24
+  if (dailyValue >= 1000) return `$${(dailyValue / 1000).toFixed(1)}k/day`
+  if (dailyValue >= 1) return `$${dailyValue.toFixed(2)}/day`
+  if (dailyValue >= 0.01) return `$${dailyValue.toFixed(3)}/day`
+  if (dailyValue > 0) return `$${dailyValue.toFixed(4)}/day`
+  return '$0.00/day'
 }
 
 function formatTimestamp(unix: number): string {
