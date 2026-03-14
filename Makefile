@@ -4,7 +4,7 @@
 
 VERSION ?= $(shell git describe --tags --always --dirty 2>/dev/null || echo "dev")
 LDFLAGS := -X main.version=$(VERSION)
-DOCKER_REPO ?= ghcr.io/skyhook-io/radar
+DOCKER_REPO ?= ghcr.io/jessegoodier/radar
 RADAR_FLAGS ?=
 PORT ?= 9280
 
@@ -154,9 +154,10 @@ docker-test: docker
 
 # Docker build multi-arch (amd64 + arm64, for production)
 docker-multiarch:
-	@docker buildx inspect radar-builder &>/dev/null || docker buildx create --name radar-builder --use
+	@docker buildx inspect radar-builder >/dev/null 2>&1 || docker buildx create --name radar-builder --use
 	docker buildx use radar-builder
 	docker buildx build \
+		--target full \
 		--platform linux/amd64,linux/arm64 \
 		--build-arg VERSION=$(VERSION) \
 		-t $(DOCKER_REPO):$(VERSION) \

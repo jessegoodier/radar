@@ -5,25 +5,33 @@
 #   Release (pre-built):   docker build --target release .
 #                          (requires radar-amd64/radar-arm64 binaries in context)
 
+ARG BUILDPLATFORM
+ARG TARGETOS
+ARG TARGETARCH
+
 # =============================================================================
 # Stage 1: Build frontend
 # =============================================================================
-FROM node:20-alpine AS frontend-builder
+FROM --platform=$BUILDPLATFORM node:20-alpine AS frontend-builder
 
-WORKDIR /app/web
+WORKDIR /app
 
-# Install dependencies
-COPY web/package*.json ./
+# Install workspace dependencies
+COPY package*.json ./
+COPY web/package*.json ./web/
+COPY packages/k8s-ui/package*.json ./packages/k8s-ui/
 RUN npm ci --prefer-offline --no-audit
 
 # Build frontend
-COPY web/ ./
+COPY web/ ./web/
+COPY packages/k8s-ui/ ./packages/k8s-ui/
+WORKDIR /app/web
 RUN npm run build
 
 # =============================================================================
 # Stage 2: Build Go backend
 # =============================================================================
-FROM golang:1.26-alpine AS backend-builder
+FROM --platform=$BUILDPLATFORM golang:1.26-alpine AS backend-builder
 
 # Install build dependencies
 RUN apk add --no-cache git ca-certificates
@@ -47,8 +55,8 @@ COPY --from=frontend-builder /app/web/dist internal/static/dist/
 # TARGETOS and TARGETARCH are automatically set by Docker buildx for multi-platform builds
 # Defaults provided for regular docker build (without buildx)
 ARG VERSION=dev
-ARG TARGETOS=linux
-ARG TARGETARCH=amd64
+ARG TARGETOS
+ARG TARGETARCH
 ARG GOEXPERIMENT=""
 
 # Build the binary
