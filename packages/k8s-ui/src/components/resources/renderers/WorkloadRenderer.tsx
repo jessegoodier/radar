@@ -1,7 +1,16 @@
 import { useState, useEffect } from 'react'
-import { Server, ExternalLink, Scale, Minus, Plus, Loader2 } from 'lucide-react'
+import { Server, ExternalLink, Scale, Minus, Plus, Loader2, DollarSign } from 'lucide-react'
+import { clsx } from 'clsx'
 import { Section, PropertyList, Property, ConditionsSection, PodTemplateSection, AlertBanner, ResourceLink } from '../../ui/drawer-components'
 import { DialogPortal } from '../../ui/DialogPortal'
+
+export interface WorkloadCostInfo {
+  hourlyCost: number
+  cpuCost: number
+  memoryCost: number
+  replicas: number
+  efficiency?: number
+}
 
 interface WorkloadRendererProps {
   kind: string
@@ -11,6 +20,13 @@ interface WorkloadRendererProps {
   onScale?: (replicas: number) => Promise<void>
   isScalePending?: boolean
   onRequestRefresh?: () => void
+  costData?: WorkloadCostInfo
+}
+
+const HOURS_PER_DAY = 24
+
+function toDailyCost(hourlyCost: number): number {
+  return hourlyCost * HOURS_PER_DAY
 }
 
 // Check if the workload is actively progressing (scaling, rolling update)
@@ -86,7 +102,21 @@ function getWorkloadProgress(status: any, spec: any, kind: string): string | nul
   return null
 }
 
-export function WorkloadRenderer({ kind, data, onNavigate, onViewPods, onScale, isScalePending, onRequestRefresh }: WorkloadRendererProps) {
+function formatCost(value: number): string {
+  if (value >= 1000) return `$${(value / 1000).toFixed(1)}k`
+  if (value >= 1) return `$${value.toFixed(2)}`
+  if (value >= 0.01) return `$${value.toFixed(3)}`
+  if (value > 0) return `$${value.toFixed(4)}`
+  return '$0.00'
+}
+
+function efficiencyColor(efficiency: number): string {
+  if (efficiency >= 50) return 'text-emerald-400'
+  if (efficiency >= 25) return 'text-amber-400'
+  return 'text-red-400'
+}
+
+export function WorkloadRenderer({ kind, data, onNavigate, onViewPods, onScale, isScalePending, onRequestRefresh, costData }: WorkloadRendererProps) {
   const status = data.status || {}
   const spec = data.spec || {}
   const metadata = data.metadata || {}
@@ -94,6 +124,11 @@ export function WorkloadRenderer({ kind, data, onNavigate, onViewPods, onScale, 
   const isDaemonSet = kind === 'daemonsets'
   const isStatefulSet = kind === 'statefulsets'
   const isScalable = (kind === 'deployments' || kind === 'statefulsets') && !!onScale
+
+  // Cost split percentages
+  const costTotal = costData ? costData.cpuCost + costData.memoryCost : 0
+  const costCpuPct = costTotal > 0 ? (costData!.cpuCost / costTotal) * 100 : 0
+  const costMemPct = costTotal > 0 ? (costData!.memoryCost / costTotal) * 100 : 0
 
   // Scale dialog state
   const [showScaleDialog, setShowScaleDialog] = useState(false)
@@ -302,6 +337,48 @@ export function WorkloadRenderer({ kind, data, onNavigate, onViewPods, onScale, 
       <Section title="Pod Template" defaultExpanded={false}>
         <PodTemplateSection template={spec.template} />
       </Section>
+
+      {/* Cost (from OpenCost) */}
+      {costData && (
+        <Section title="Cost" icon={DollarSign} defaultExpanded>
+          <PropertyList>
+            <Property label="Daily" value={formatCost(toDailyCost(costData.hourlyCost))} />
+            <Property label="Monthly (est.)" value={`~${formatCost(costData.hourlyCost * 730)}`} />
+            {costData.replicas > 0 && (
+              <Property
+                label="Per Replica"
+                value={formatCost(toDailyCost(costData.hourlyCost / costData.replicas)) + '/day'}
+              />
+            )}
+          </PropertyList>
+          <div className="mt-3 pt-3 border-t border-theme-border space-y-2">
+            <div className="flex items-center justify-between text-xs">
+              <span className="text-theme-text-tertiary">CPU</span>
+              <span className="text-theme-text-secondary tabular-nums">{formatCost(toDailyCost(costData.cpuCost))}/day</span>
+            </div>
+            <div className="flex items-center justify-between text-xs">
+              <span className="text-theme-text-tertiary">Memory</span>
+              <span className="text-theme-text-secondary tabular-nums">{formatCost(toDailyCost(costData.memoryCost))}/day</span>
+            </div>
+            {/* CPU/Memory split bar */}
+            {costTotal > 0 && (
+              <div className="h-1.5 rounded-full overflow-hidden bg-theme-hover flex mt-1">
+                <div className="h-full bg-blue-500" style={{ width: `${costCpuPct}%` }} />
+                <div className="h-full bg-purple-500" style={{ width: `${costMemPct}%` }} />
+              </div>
+            )}
+            {costData.efficiency !== undefined && (
+              <div className="flex items-center justify-between text-xs pt-1">
+                <span className="text-theme-text-tertiary">Efficiency</span>
+                <span className={clsx('font-medium tabular-nums', efficiencyColor(costData.efficiency))}>
+                  {costData.efficiency.toFixed(0)}%
+                </span>
+              </div>
+            )}
+          </div>
+          <div className="mt-2 text-[10px] text-theme-text-quaternary">Powered by OpenCost</div>
+        </Section>
+      )}
 
       <ConditionsSection conditions={status.conditions} />
     </>
