@@ -306,6 +306,12 @@ const KNOWN_COLUMNS: Record<string, Column[]> = {
     { key: 'address', label: 'Address', width: 'min-w-32', hideOnMobile: true },
     { key: 'age', label: 'Age', width: 'w-16 shrink-0' },
   ],
+  namespaces: [
+    { key: 'name', label: 'Name' },
+    { key: 'status', label: 'Status', width: 'w-28' },
+    { key: 'hourlyCost', label: 'Cost/day', width: 'w-28', tooltip: 'Daily run rate from OpenCost (when available)' },
+    { key: 'age', label: 'Age', width: 'w-20' },
+  ],
   nodes: [
     { key: 'name', label: 'Name' },
     { key: 'status', label: 'Status', width: 'w-44' },
@@ -313,6 +319,7 @@ const KNOWN_COLUMNS: Record<string, Column[]> = {
     { key: 'cpu', label: 'CPU', width: 'w-40', tooltip: 'Current CPU usage / allocatable' },
     { key: 'memory', label: 'Memory', width: 'w-40', tooltip: 'Current memory usage / allocatable' },
     { key: 'pods', label: 'Pods', width: 'w-28', tooltip: 'Pods running / allocatable' },
+    { key: 'hourlyCost', label: 'Cost/day', width: 'w-28', tooltip: 'Daily run rate from OpenCost (when available)', hideOnMobile: true },
     { key: 'conditions', label: 'Conditions', width: 'w-40', hideOnMobile: true },
     { key: 'taints', label: 'Taints', width: 'w-24', hideOnMobile: true },
     { key: 'version', label: 'Version', width: 'w-28' },
@@ -1364,6 +1371,22 @@ interface ColumnSettings {
   widths: Record<string, number>
 }
 
+function getMissingDefaultVisibleColumns(columns: Column[], visible: string[]): string[] {
+  const visibleSet = new Set(visible)
+  return columns
+    .filter(c => c.defaultVisible !== false && !visibleSet.has(c.key))
+    .map(c => c.key)
+}
+
+function shouldAddCostColumnByDefault(kind: string, columns: Column[], visible: string[]): boolean {
+  if (!['namespaces', 'nodes'].includes(kind)) return false
+  if (!columns.some(c => c.key === 'hourlyCost' && c.defaultVisible !== false)) return false
+  if (visible.includes('hourlyCost')) return false
+
+  const missingDefaultColumns = getMissingDefaultVisibleColumns(columns, visible)
+  return missingDefaultColumns.length === 1 && missingDefaultColumns[0] === 'hourlyCost'
+}
+
 function loadColumnSettings(kind: string, group?: string): ColumnSettings | null {
   try {
     const key = COLUMN_SETTINGS_PREFIX + normalizeKindToPlural(kind, group)
@@ -1394,6 +1417,19 @@ interface MetricsLookup {
 }
 
 const MetricsContext = React.createContext<MetricsLookup>({ pods: new Map(), nodes: new Map() })
+const HOURS_PER_DAY = 24
+
+// Minimal cost info shapes — defined here so the package has no web/api dependency
+export interface NamespaceRowCost {
+  name: string
+  hourlyCost: number
+  efficiency?: number
+}
+
+export interface NodeRowCost {
+  name: string
+  hourlyCost: number
+}
 
 // Context for deeply nested sub-components (PodCell, SecretCell) to access injected platform data
 interface ResourcesViewData {
@@ -1402,6 +1438,8 @@ interface ResourcesViewData {
   certExpiryError?: boolean
   onOpenLogs?: (params: { namespace: string; podName: string; containers: string[]; containerName?: string }) => void
   onOpenWorkloadLogs?: (params: { namespace: string; workloadKind: string; workloadName: string }) => void
+  namespaceCosts?: NamespaceRowCost[]
+  nodeCosts?: NodeRowCost[]
 }
 
 export const ResourcesViewDataContext = React.createContext<ResourcesViewData>({})
@@ -1438,6 +1476,8 @@ interface ResourcesViewProps {
   topNodeMetrics?: TopNodeMetrics[]
   certExpiry?: Record<string, { expired?: boolean; daysLeft: number }>
   certExpiryError?: boolean
+  namespaceCosts?: NamespaceRowCost[]
+  nodeCosts?: NodeRowCost[]
   // Pinned kinds
   pinned?: Array<{ name: string; kind: string; group: string }>
   togglePin?: (kind: { name: string; kind: string; group: string }) => void
@@ -1517,6 +1557,8 @@ export function ResourcesView({
   topNodeMetrics,
   certExpiry,
   certExpiryError,
+  namespaceCosts,
+  nodeCosts,
   pinned = [],
   togglePin = () => {},
   isPinned = () => false,
@@ -1641,18 +1683,22 @@ export function ResourcesView({
   useEffect(() => {
     const saved = loadColumnSettings(selectedKind.name, selectedKind.group)
     if (saved) {
+      const kindKey = normalizeKindToPlural(selectedKind.name, selectedKind.group)
+      const savedVisible = shouldAddCostColumnByDefault(kindKey, allColumns, saved.visible)
+        ? [...saved.visible, 'hourlyCost']
+        : saved.visible
       // If saved columns are just the defaults but this kind has specialized columns,
       // discard the stale save and use the specialized columns instead
       const defaultKeys = DEFAULT_COLUMNS.map(c => c.key)
       const isStaleDefaults = allColumns !== DEFAULT_COLUMNS &&
-        saved.visible.length === defaultKeys.length &&
-        saved.visible.every(v => defaultKeys.includes(v))
+        savedVisible.length === defaultKeys.length &&
+        savedVisible.every(v => defaultKeys.includes(v))
       if (isStaleDefaults) {
         clearColumnSettings(selectedKind.name, selectedKind.group)
         setVisibleColumns(getDefaultVisibleColumns(allColumns))
         setColumnWidths({})
       } else {
-        setVisibleColumns(new Set(saved.visible))
+        setVisibleColumns(new Set(savedVisible))
         setColumnWidths(saved.widths || {})
       }
     } else {
@@ -2511,10 +2557,21 @@ export function ResourcesView({
         }
         return 0
       }
+      case 'hourlyCost': {
+        if (kindLower === 'namespaces') {
+          const cost = namespaceCosts?.find(n => n.name === meta.name)
+          return cost?.hourlyCost ?? -1
+        }
+        if (kindLower === 'nodes') {
+          const cost = nodeCosts?.find(n => n.name === meta.name)
+          return cost?.hourlyCost ?? -1
+        }
+        return -1
+      }
       default:
         return ''
     }
-  }, [metricsLookup])
+  }, [metricsLookup, namespaceCosts, nodeCosts])
 
   // Helper to check if a pod matches problem filters
   const podMatchesProblemFilter = useCallback((pod: any, filters: string[]): boolean => {
@@ -3043,7 +3100,9 @@ export function ResourcesView({
     certExpiryError,
     onOpenLogs,
     onOpenWorkloadLogs,
-  }), [onNavigate, certExpiry, certExpiryError, onOpenLogs, onOpenWorkloadLogs])
+    namespaceCosts,
+    nodeCosts,
+  }), [onNavigate, certExpiry, certExpiryError, onOpenLogs, onOpenWorkloadLogs, namespaceCosts, nodeCosts])
 
   return (
     <ResourcesViewDataContext.Provider value={resourcesViewDataContextValue}>
@@ -3562,7 +3621,7 @@ export function ResourcesView({
               fixedHeaderContent={() => (
                 <tr>
                   {columns.map((col, colIdx) => {
-                    const isSortable = ['name', 'namespace', 'age', 'status', 'ready', 'restarts', 'type', 'version', 'desired', 'available', 'upToDate', 'lastSeen', 'count', 'reason', 'object', 'cpu', 'memory'].includes(col.key)
+                    const isSortable = ['name', 'namespace', 'age', 'status', 'ready', 'restarts', 'type', 'version', 'desired', 'available', 'upToDate', 'lastSeen', 'count', 'reason', 'object', 'cpu', 'memory', 'hourlyCost'].includes(col.key)
                     const isSorted = sortColumn === col.key
                     const isLastCol = colIdx === columns.length - 1
                     const filterCol = filterableColumnMap.get(col.key)
@@ -3975,6 +4034,8 @@ function CellContent({ resource, kind, column, group, majorityNodeMinorVersion }
     case 'hpas':
     case 'horizontalpodautoscalers':
       return <HPACell resource={resource} column={column} />
+    case 'namespaces':
+      return <NamespaceCell resource={resource} column={column} />
     case 'nodes':
       return <NodeCell resource={resource} column={column} majorityNodeMinorVersion={majorityNodeMinorVersion} />
     case 'persistentvolumeclaims':
@@ -4785,6 +4846,14 @@ function HPACell({ resource, column }: { resource: any; column: string }) {
 }
 
 // Format helpers for resource bars
+function formatCostShort(value: number): string {
+  if (value >= 1000) return `$${(value / 1000).toFixed(1)}k`
+  if (value >= 1) return `$${value.toFixed(2)}`
+  if (value >= 0.01) return `$${value.toFixed(3)}`
+  if (value > 0) return `$${value.toFixed(4)}`
+  return '$0.00'
+}
+
 function formatCPU(nanocores: number): string {
   const m = Math.round(nanocores / 1e6)
   return `${m}m`
@@ -4868,6 +4937,7 @@ function buildResourceTooltip(
 
 function NodeCell({ resource, column, majorityNodeMinorVersion }: { resource: any; column: string; majorityNodeMinorVersion?: string }) {
   const metrics = useContext(MetricsContext)
+  const { nodeCosts } = useContext(ResourcesViewDataContext)
 
   switch (column) {
     case 'status': {
@@ -4943,6 +5013,47 @@ function NodeCell({ resource, column, majorityNodeMinorVersion }: { resource: an
       if (isNaN(max) || max <= 0) return <span className="text-sm text-theme-text-tertiary font-mono">{podCount || '-'}</span>
       const pct = (podCount / max) * 100
       return <ResourceBar used={String(podCount)} total={String(max)} percent={pct} colorScheme="count" />
+    }
+    case 'hourlyCost': {
+      const nodeName = resource.metadata?.name
+      const cost = nodeCosts?.find(n => n.name === nodeName)
+      if (!cost) return <span className="text-sm text-theme-text-tertiary">-</span>
+      return (
+        <span className="text-sm text-theme-text-secondary tabular-nums">
+          {formatCostShort(cost.hourlyCost * HOURS_PER_DAY)}
+        </span>
+      )
+    }
+    default:
+      return <span className="text-sm text-theme-text-tertiary">-</span>
+  }
+}
+
+function NamespaceCell({ resource, column }: { resource: any; column: string }) {
+  const { namespaceCosts } = useContext(ResourcesViewDataContext)
+
+  switch (column) {
+    case 'status': {
+      const phase = resource.status?.phase
+      if (!phase) return <span className="text-sm text-theme-text-tertiary">-</span>
+      return (
+        <span className={clsx(
+          'inline-flex items-center px-2 py-0.5 rounded text-xs font-medium',
+          phase === 'Active' ? 'bg-emerald-500/20 text-emerald-400' : 'bg-yellow-500/20 text-yellow-400'
+        )}>
+          {phase}
+        </span>
+      )
+    }
+    case 'hourlyCost': {
+      const nsName = resource.metadata?.name
+      const cost = namespaceCosts?.find(n => n.name === nsName)
+      if (!cost) return <span className="text-sm text-theme-text-tertiary">-</span>
+      return (
+        <span className="text-sm text-theme-text-secondary tabular-nums">
+          {formatCostShort(cost.hourlyCost * HOURS_PER_DAY)}
+        </span>
+      )
     }
     default:
       return <span className="text-sm text-theme-text-tertiary">-</span>
@@ -5507,6 +5618,3 @@ function EventCell({ resource, column }: { resource: any; column: string }) {
       return <span className="text-sm text-theme-text-tertiary">-</span>
   }
 }
-
-
-
