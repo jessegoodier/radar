@@ -3,10 +3,10 @@
 replicaCount: 1
 
 image:
-  repository: ghcr.io/skyhook-io/radar
-  pullPolicy: IfNotPresent
+  repository: ghcr.io/jessegoodier/radar
+  pullPolicy: Always
   # Overrides the image tag whose default is the chart appVersion.
-  tag: ""
+  tag: latest
 
 imagePullSecrets: []
 nameOverride: ""

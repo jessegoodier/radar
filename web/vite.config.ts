@@ -24,6 +24,27 @@ export default defineConfig({
   build: {
     outDir: 'dist',
     emptyOutDir: true,
+    rollupOptions: {
+      output: {
+        manualChunks(id) {
+          if (id.includes('node_modules/@monaco-editor') || id.includes('node_modules/monaco-editor')) {
+            return 'monaco'
+          }
+          if (id.includes('node_modules/shiki') || id.includes('node_modules/@shikijs')) {
+            return 'shiki'
+          }
+          if (id.includes('node_modules/@xterm')) {
+            return 'xterm'
+          }
+          if (id.includes('node_modules/elkjs') || id.includes('/packages/k8s-ui/src/components/topology/')) {
+            return 'topology'
+          }
+          if (id.includes('node_modules/@xyflow')) {
+            return 'reactflow'
+          }
+        },
+      },
+    },
   },
   // Handle client-side routing - serve index.html for all routes
   appType: 'spa',

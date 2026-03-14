@@ -21,19 +21,20 @@ import { PrometheusCharts, isPrometheusSupported } from '../resource/PrometheusC
 import { WorkloadLogsViewer } from '../logs/WorkloadLogsViewer'
 import { LogsViewer } from '../logs/LogsViewer'
 import { useCanUpdateSecrets, useCanExec, useCanViewLogs, useCanPortForward } from '../../contexts/CapabilitiesContext'
-import { useOpenTerminal, useOpenLogs, useOpenWorkloadLogs } from '../dock'
+import { useOpenTerminal, useOpenLogs, useOpenWorkloadLogs, useOpenNodeTerminal } from '../dock'
 import { PortForwardButton } from '../portforward/PortForwardButton'
 import { useToast } from '../ui/Toast'
 import { PodRenderer } from '../resources/renderers/PodRenderer'
 import { NodeRenderer } from '../resources/renderers/NodeRenderer'
 import { ServiceRenderer } from '../resources/renderers/ServiceRenderer'
 import { WorkloadRenderer } from '../resources/renderers/WorkloadRenderer'
+import { NamespaceRenderer } from '../resources/renderers/NamespaceRenderer'
 
 type TabType = 'overview' | 'timeline' | 'logs' | 'metrics' | 'yaml'
 
 // Stable reference — web renderer wrappers inject platform hooks internally
 const rendererOverrides: RendererOverrides = {
-  PodRenderer, NodeRenderer, ServiceRenderer, WorkloadRenderer,
+  PodRenderer, NodeRenderer, ServiceRenderer, WorkloadRenderer, NamespaceRenderer,
 }
 
 // ============================================================================
@@ -110,6 +111,7 @@ function useActionsBarProps(kind: string, namespace: string, name: string) {
   const openTerminal = useOpenTerminal()
   const openLogs = useOpenLogs()
   const openWorkloadLogs = useOpenWorkloadLogs()
+  const openNodeTerminal = useOpenNodeTerminal()
   const canExec = useCanExec()
   const canViewLogs = useCanViewLogs()
   const canPortForward = useCanPortForward()
@@ -141,6 +143,7 @@ function useActionsBarProps(kind: string, namespace: string, name: string) {
     onOpenTerminal: openTerminal,
     onOpenLogs: openLogs,
     onOpenWorkloadLogs: openWorkloadLogs,
+    onOpenNodeTerminal: openNodeTerminal,
     onCopyCommand: (text: string, message: string, event: React.MouseEvent) => showCopied(text, message, event),
     renderPortForward: ({ type, namespace: ns, name: n, className }: { type: 'pod' | 'service'; namespace: string; name: string; className?: string }) => (
       <PortForwardButton type={type} namespace={ns} name={n} className={className} />

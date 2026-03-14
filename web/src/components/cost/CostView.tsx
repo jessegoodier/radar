@@ -1,11 +1,35 @@
 import { useState, useEffect } from 'react'
-import { useOpenCostSummary, useOpenCostWorkloads, useOpenCostNodes } from '../../api/client'
-import type { OpenCostNamespaceCost, OpenCostWorkloadCost, OpenCostNodeCost } from '../../api/client'
-import { ArrowLeft, ChevronDown, ChevronRight, DollarSign, HelpCircle, Loader2, Server, X } from 'lucide-react'
+import {
+  useOpenCostSummary,
+  useOpenCostWorkloads,
+  useOpenCostNodes,
+} from '../../api/client'
+import type {
+  OpenCostNamespaceCost,
+  OpenCostWorkloadCost,
+  OpenCostNodeCost,
+} from '../../api/client'
+import {
+  ArrowLeft,
+  ChevronDown,
+  ChevronRight,
+  DollarSign,
+  HelpCircle,
+  Loader2,
+  Server,
+  X,
+} from 'lucide-react'
 import { CostTrendChart } from './CostTrendChart'
 
 interface CostViewProps {
   onBack: () => void
+}
+
+const HOURS_PER_DAY = 24
+const DAYS_PER_MONTH = 730 / HOURS_PER_DAY
+
+function toDailyCost(hourlyCost: number): number {
+  return hourlyCost * HOURS_PER_DAY
 }
 
 export function CostView({ onBack }: CostViewProps) {
@@ -18,7 +42,9 @@ export function CostView({ onBack }: CostViewProps) {
       <div className="flex-1 flex items-center justify-center">
         <div className="flex flex-col items-center gap-3">
           <Loader2 className="w-6 h-6 animate-spin text-theme-text-tertiary" />
-          <span className="text-sm text-theme-text-tertiary">Loading cost data...</span>
+          <span className="text-sm text-theme-text-tertiary">
+            Loading cost data...
+          </span>
         </div>
       </div>
     )
@@ -26,13 +52,14 @@ export function CostView({ onBack }: CostViewProps) {
 
   if (!data || !data.available) {
     const reason = data?.reason
-    const message = reason === 'no_prometheus'
-      ? 'Prometheus not found — OpenCost requires Prometheus or VictoriaMetrics'
-      : reason === 'no_metrics'
-        ? 'OpenCost metrics not found — Prometheus is available but no cost metrics were detected'
-        : reason === 'query_error'
-          ? 'Cost data temporarily unavailable — Prometheus was found but queries failed'
-          : 'OpenCost not detected — install OpenCost for cost visibility'
+    const message =
+      reason === 'no_prometheus'
+        ? 'Prometheus not found — OpenCost requires Prometheus or VictoriaMetrics'
+        : reason === 'no_metrics'
+          ? 'OpenCost metrics not found — Prometheus is available but no cost metrics were detected'
+          : reason === 'query_error'
+            ? 'Cost data temporarily unavailable — Prometheus was found but queries failed'
+            : 'OpenCost not detected — install OpenCost for cost visibility'
 
     return (
       <div className="flex-1 flex items-center justify-center">
@@ -51,21 +78,32 @@ export function CostView({ onBack }: CostViewProps) {
   }
 
   const hourlyCost = data.totalHourlyCost ?? 0
-  const monthlyCost = hourlyCost * 730
+  const dailyCost = toDailyCost(hourlyCost)
+  const monthlyCost = dailyCost * DAYS_PER_MONTH
   const namespaces = data.namespaces ?? []
-  const totalCpu = namespaces.reduce((sum, ns) => sum + ns.cpuCost, 0)
-  const totalMem = namespaces.reduce((sum, ns) => sum + ns.memoryCost, 0)
-  const totalStorage = data.totalStorageCost ?? 0
+  const totalCpu = toDailyCost(
+    namespaces.reduce((sum, ns) => sum + ns.cpuCost, 0)
+  )
+  const totalMem = toDailyCost(
+    namespaces.reduce((sum, ns) => sum + ns.memoryCost, 0)
+  )
+  const totalStorage = toDailyCost(data.totalStorageCost ?? 0)
+  const totalGpu = toDailyCost(
+    data.totalGpuCost ??
+      namespaces.reduce((sum, ns) => sum + (ns.gpuCost ?? 0), 0)
+  )
   const hasStorage = totalStorage > 0
+  const hasGpu = totalGpu > 0
   const hasEfficiency = (data.clusterEfficiency ?? 0) > 0
 
-  // Compute split percentages (CPU + Memory + optional Storage)
-  const allocTotal = totalCpu + totalMem + totalStorage
+  // Compute split percentages (CPU + Memory + optional Storage/GPU)
+  const allocTotal = totalCpu + totalMem + totalStorage + totalGpu
   const cpuPct = allocTotal > 0 ? (totalCpu / allocTotal) * 100 : 50
   const memPct = allocTotal > 0 ? (totalMem / allocTotal) * 100 : 50
   const storagePct = allocTotal > 0 ? (totalStorage / allocTotal) * 100 : 0
+  const gpuPct = allocTotal > 0 ? (totalGpu / allocTotal) * 100 : 0
 
-  const nodes = nodeData?.available ? nodeData.nodes ?? [] : []
+  const nodes = nodeData?.available ? (nodeData.nodes ?? []) : []
 
   return (
     <div className="flex-1 overflow-y-auto">
@@ -83,7 +121,9 @@ export function CostView({ onBack }: CostViewProps) {
             <div className="w-px h-5 bg-theme-border" />
             <div className="flex items-center gap-2">
               <DollarSign className="w-5 h-5 text-indigo-500" />
-              <h1 className="text-lg font-semibold text-theme-text-primary">Cost Insights</h1>
+              <h1 className="text-lg font-semibold text-theme-text-primary">
+                Cost Insights
+              </h1>
             </div>
             <span className="text-theme-text-quaternary">·</span>
             <button
@@ -98,12 +138,15 @@ export function CostView({ onBack }: CostViewProps) {
             {hasEfficiency && (
               <div className="flex flex-col items-end gap-0.5">
                 <div className="flex items-center gap-2 text-sm">
-                  <span className={efficiencyColor(data.clusterEfficiency ?? 0)}>
+                  <span
+                    className={efficiencyColor(data.clusterEfficiency ?? 0)}
+                  >
                     {(data.clusterEfficiency ?? 0).toFixed(0)}% efficient
                   </span>
                 </div>
                 <span className="text-[10px] text-theme-text-tertiary">
-                  ~{formatCost((data.totalIdleCost ?? 0) * 730)}/mo unused capacity
+                  ~{formatCost((data.totalIdleCost ?? 0) * 730)}/mo unused
+                  capacity
                 </span>
               </div>
             )}
@@ -111,37 +154,51 @@ export function CostView({ onBack }: CostViewProps) {
               <div className="flex items-baseline gap-3">
                 <div className="flex items-baseline gap-1">
                   <span className="text-2xl font-bold text-theme-text-primary tabular-nums">
-                    {formatCost(hourlyCost)}
+                    {formatCost(dailyCost)}
                   </span>
-                  <span className="text-xs text-theme-text-tertiary">/hr</span>
+                  <span className="text-xs text-theme-text-tertiary">/day</span>
                 </div>
                 <div className="flex items-baseline gap-1 text-theme-text-secondary">
-                  <span className="text-sm font-medium tabular-nums">~{formatCost(monthlyCost)}</span>
-                  <span className="text-[10px] text-theme-text-tertiary">/mo</span>
+                  <span className="text-sm font-medium tabular-nums">
+                    ~{formatCost(monthlyCost)}
+                  </span>
+                  <span className="text-[10px] text-theme-text-tertiary">
+                    /mo
+                  </span>
                 </div>
               </div>
-              <span className="text-[10px] text-theme-text-quaternary">based on last 1h average</span>
+              <span className="text-[10px] text-theme-text-quaternary">
+                based on last 1h average
+              </span>
             </div>
           </div>
         </div>
 
-        {/* CPU vs Memory (vs Storage) split bar */}
+        {/* CPU vs Memory vs Storage vs GPU split bar */}
         <div className="rounded-lg border border-theme-border bg-theme-surface/50 p-4">
           <div className="flex items-center justify-between mb-2">
-            <span className="text-xs font-medium text-theme-text-secondary">Cluster Resource Cost</span>
+            <span className="text-xs font-medium text-theme-text-secondary">
+              Cluster Resource Cost
+            </span>
             <div className="flex items-center gap-4 text-xs text-theme-text-tertiary">
               <span className="flex items-center gap-1.5">
                 <span className="w-2.5 h-2.5 rounded-sm bg-blue-500" />
-                CPU {formatCost(totalCpu)}/hr
+                CPU {formatCost(totalCpu)}/day
               </span>
               <span className="flex items-center gap-1.5">
                 <span className="w-2.5 h-2.5 rounded-sm bg-purple-500" />
-                Memory {formatCost(totalMem)}/hr
+                Memory {formatCost(totalMem)}/day
               </span>
               {hasStorage && (
                 <span className="flex items-center gap-1.5">
                   <span className="w-2.5 h-2.5 rounded-sm bg-teal-500" />
-                  Storage {formatCost(totalStorage)}/hr
+                  Storage (PV/PVC) {formatCost(totalStorage)}/day
+                </span>
+              )}
+              {hasGpu && (
+                <span className="flex items-center gap-1.5">
+                  <span className="w-2.5 h-2.5 rounded-sm bg-amber-500" />
+                  GPU {formatCost(totalGpu)}/day
                 </span>
               )}
             </div>
@@ -161,6 +218,12 @@ export function CostView({ onBack }: CostViewProps) {
                 style={{ width: `${storagePct}%` }}
               />
             )}
+            {hasGpu && (
+              <div
+                className="h-full bg-amber-500 transition-all duration-300"
+                style={{ width: `${gpuPct}%` }}
+              />
+            )}
           </div>
         </div>
 
@@ -172,27 +235,49 @@ export function CostView({ onBack }: CostViewProps) {
           <div className="px-4 py-3 border-b border-theme-border">
             <div className="flex items-center justify-between">
               <div>
-                <span className="text-sm font-semibold text-theme-text-primary">Namespace Breakdown</span>
-                <span className="text-[10px] text-theme-text-quaternary ml-2">current hourly rates</span>
+                <span className="text-sm font-semibold text-theme-text-primary">
+                  Namespace Breakdown
+                </span>
+                <span className="text-[10px] text-theme-text-quaternary ml-2">
+                  current daily run rate
+                </span>
               </div>
-              <span className="text-xs text-theme-text-tertiary">{namespaces.length} namespaces</span>
+              <span className="text-xs text-theme-text-tertiary">
+                {namespaces.length} namespaces
+              </span>
             </div>
           </div>
 
           {/* Table header */}
-          <div className="grid grid-cols-[minmax(180px,1fr)_90px_90px_80px_minmax(160px,1fr)_120px] gap-2 px-4 py-2 border-b border-theme-border text-[11px] font-medium text-theme-text-tertiary uppercase tracking-wider">
+          <div className="grid grid-cols-[minmax(180px,1fr)_90px_90px_80px_minmax(160px,1fr)_160px] gap-2 px-4 py-2 border-b border-theme-border text-[11px] font-medium text-theme-text-tertiary uppercase tracking-wider">
             <span>Namespace</span>
-            <span className="text-right">Hourly</span>
-            <span className="text-right cursor-help" title="Projected from current hourly rate — not historical spend">Monthly*</span>
-            <span className="text-right cursor-help" title="% of reserved resources actually being used, weighted by cost">Efficiency</span>
-            <span>CPU / Memory</span>
-            <span className="text-right">Cost Split</span>
+            <span className="text-right">Daily</span>
+            <span
+              className="text-right cursor-help"
+              title="Projected from current daily rate — not historical spend"
+            >
+              Monthly*
+            </span>
+            <span
+              className="text-right cursor-help"
+              title="% of reserved resources actually being used, weighted by cost"
+            >
+              Efficiency
+            </span>
+            <span>Mix</span>
+            <span className="text-right">Breakdown</span>
           </div>
 
           {/* Namespace rows */}
           <div className="divide-y divide-theme-border/50">
-            {namespaces.map((ns) => (
-              <NamespaceCostRow key={ns.name} ns={ns} maxCost={namespaces[0]?.hourlyCost ?? 0} hasStorage={hasStorage} />
+            {namespaces.map(ns => (
+              <NamespaceCostRow
+                key={ns.name}
+                ns={ns}
+                maxCost={namespaces[0]?.hourlyCost ?? 0}
+                hasStorage={hasStorage}
+                hasGpu={hasGpu}
+              />
             ))}
           </div>
         </div>
@@ -203,9 +288,12 @@ export function CostView({ onBack }: CostViewProps) {
         {/* Footer */}
         <div className="flex items-center justify-between text-xs text-theme-text-tertiary pb-4">
           <span>
-            {data.currency ?? 'USD'} &middot; costs based on last 1h average &middot; *monthly estimates assume 730 hrs/mo
+            {data.currency ?? 'USD'} &middot; costs based on last 1h average
+            &middot; *monthly estimates assume 30.4 days/mo
           </span>
-          <span className="text-indigo-500 font-medium">Powered by OpenCost</span>
+          <span className="text-indigo-500 font-medium">
+            Powered by OpenCost
+          </span>
         </div>
       </div>
 
@@ -215,12 +303,30 @@ export function CostView({ onBack }: CostViewProps) {
   )
 }
 
-function NamespaceCostRow({ ns, maxCost, hasStorage }: { ns: OpenCostNamespaceCost; maxCost: number; hasStorage: boolean }) {
+function NamespaceCostRow({
+  ns,
+  maxCost,
+  hasStorage,
+  hasGpu,
+}: {
+  ns: OpenCostNamespaceCost
+  maxCost: number
+  hasStorage: boolean
+  hasGpu: boolean
+}) {
   const [expanded, setExpanded] = useState(false)
-  const monthlyCost = ns.hourlyCost * 730
-  const allocTotal = ns.cpuCost + ns.memoryCost + (ns.storageCost ?? 0)
-  const cpuPct = allocTotal > 0 ? (ns.cpuCost / allocTotal) * 100 : 50
-  const memPct = allocTotal > 0 ? (ns.memoryCost / allocTotal) * 100 : 50
+  const dailyCost = toDailyCost(ns.hourlyCost)
+  const monthlyCost = dailyCost * DAYS_PER_MONTH
+  const dailyCpuCost = toDailyCost(ns.cpuCost)
+  const dailyMemCost = toDailyCost(ns.memoryCost)
+  const dailyStorageCost = toDailyCost(ns.storageCost ?? 0)
+  const dailyGpuCost = toDailyCost(ns.gpuCost ?? 0)
+  const allocTotal =
+    dailyCpuCost + dailyMemCost + dailyStorageCost + dailyGpuCost
+  const cpuPct = allocTotal > 0 ? (dailyCpuCost / allocTotal) * 100 : 50
+  const memPct = allocTotal > 0 ? (dailyMemCost / allocTotal) * 100 : 50
+  const storagePct = allocTotal > 0 ? (dailyStorageCost / allocTotal) * 100 : 0
+  const gpuPct = allocTotal > 0 ? (dailyGpuCost / allocTotal) * 100 : 0
   const barWidth = maxCost > 0 ? (ns.hourlyCost / maxCost) * 100 : 0
   const eff = ns.efficiency ?? 0
   const hasEff = eff > 0
@@ -229,7 +335,7 @@ function NamespaceCostRow({ ns, maxCost, hasStorage }: { ns: OpenCostNamespaceCo
     <div>
       <button
         onClick={() => setExpanded(!expanded)}
-        className="w-full grid grid-cols-[minmax(180px,1fr)_90px_90px_80px_minmax(160px,1fr)_120px] gap-2 px-4 py-2.5 text-left hover:bg-theme-hover/50 transition-colors group"
+        className="w-full grid grid-cols-[minmax(180px,1fr)_90px_90px_80px_minmax(160px,1fr)_160px] gap-2 px-4 py-2.5 text-left hover:bg-theme-hover/50 transition-colors group"
       >
         <span className="flex items-center gap-1.5 min-w-0">
           {expanded ? (
@@ -237,41 +343,67 @@ function NamespaceCostRow({ ns, maxCost, hasStorage }: { ns: OpenCostNamespaceCo
           ) : (
             <ChevronRight className="w-3.5 h-3.5 text-theme-text-tertiary shrink-0" />
           )}
-          <span className="text-sm text-theme-text-primary truncate font-medium">{ns.name}</span>
+          <span className="text-sm text-theme-text-primary truncate font-medium">
+            {ns.name}
+          </span>
         </span>
-        <span className="text-sm text-theme-text-primary tabular-nums text-right">{formatCost(ns.hourlyCost)}</span>
-        <span className="text-sm text-theme-text-secondary tabular-nums text-right">~{formatCost(monthlyCost)}</span>
+        <span className="text-sm text-theme-text-primary tabular-nums text-right">
+          {formatCost(dailyCost)}
+        </span>
+        <span className="text-sm text-theme-text-secondary tabular-nums text-right">
+          ~{formatCost(monthlyCost)}
+        </span>
         <span className="text-right flex items-center justify-end gap-1">
           {hasEff ? (
             <>
-              <span className={`text-xs font-medium tabular-nums ${efficiencyColor(eff)}`}>
+              <span
+                className={`text-xs font-medium tabular-nums ${efficiencyColor(eff)}`}
+              >
                 {eff.toFixed(0)}%
               </span>
-
             </>
           ) : (
             <span className="text-xs text-theme-text-quaternary">-</span>
           )}
         </span>
         <span className="flex items-center gap-2">
-          <div className="flex-1 h-2 rounded-full overflow-hidden bg-theme-hover flex" style={{ maxWidth: `${Math.max(barWidth, 3)}%` }}>
-            <div className="h-full bg-blue-500/70" style={{ width: `${cpuPct}%` }} />
-            <div className="h-full bg-purple-500/70" style={{ width: `${memPct}%` }} />
+          <div
+            className="flex-1 h-2 rounded-full overflow-hidden bg-theme-hover flex"
+            style={{ maxWidth: `${Math.max(barWidth, 3)}%` }}
+          >
+            <div
+              className="h-full bg-blue-500/70"
+              style={{ width: `${cpuPct}%` }}
+            />
+            <div
+              className="h-full bg-purple-500/70"
+              style={{ width: `${memPct}%` }}
+            />
             {hasStorage && (ns.storageCost ?? 0) > 0 && (
-              <div className="h-full bg-teal-500/70" style={{ width: `${100 - cpuPct - memPct}%` }} />
+              <div
+                className="h-full bg-teal-500/70"
+                style={{ width: `${storagePct}%` }}
+              />
+            )}
+            {hasGpu && (ns.gpuCost ?? 0) > 0 && (
+              <div
+                className="h-full bg-amber-500/70"
+                style={{ width: `${gpuPct}%` }}
+              />
             )}
           </div>
         </span>
         <span className="text-[11px] text-theme-text-tertiary tabular-nums text-right">
-          {formatCost(ns.cpuCost)} / {formatCost(ns.memoryCost)}
-          {hasStorage && (ns.storageCost ?? 0) > 0 && ` / ${formatCost(ns.storageCost ?? 0)}`}
+          {formatCost(dailyCpuCost)} / {formatCost(dailyMemCost)}
+          {hasStorage &&
+            (ns.storageCost ?? 0) > 0 &&
+            ` / ${formatCost(dailyStorageCost)}`}
+          {hasGpu && (ns.gpuCost ?? 0) > 0 && ` / ${formatCost(dailyGpuCost)}`}
         </span>
       </button>
 
       {/* Expanded workload rows */}
-      {expanded && (
-        <WorkloadRows namespace={ns.name} />
-      )}
+      {expanded && <WorkloadRows namespace={ns.name} />}
     </div>
   )
 }
@@ -299,36 +431,68 @@ function WorkloadRows({ namespace }: { namespace: string }) {
 
   return (
     <div className="bg-theme-elevated/30 border-t border-theme-border/30">
-      {workloads.map((wl) => (
-        <WorkloadCostRow key={`${wl.kind}-${wl.name}`} wl={wl} maxCost={workloads[0]?.hourlyCost ?? 0} />
+      {workloads.map(wl => (
+        <WorkloadCostRow
+          key={`${wl.kind}-${wl.name}`}
+          wl={wl}
+          maxCost={workloads[0]?.hourlyCost ?? 0}
+        />
       ))}
     </div>
   )
 }
 
-function WorkloadCostRow({ wl, maxCost }: { wl: OpenCostWorkloadCost; maxCost: number }) {
-  const monthlyCost = wl.hourlyCost * 730
-  const cpuPct = wl.hourlyCost > 0 ? (wl.cpuCost / wl.hourlyCost) * 100 : 50
+function WorkloadCostRow({
+  wl,
+  maxCost,
+}: {
+  wl: OpenCostWorkloadCost
+  maxCost: number
+}) {
+  const dailyCost = toDailyCost(wl.hourlyCost)
+  const monthlyCost = dailyCost * DAYS_PER_MONTH
+  const dailyCpuCost = toDailyCost(wl.cpuCost)
+  const dailyMemCost = toDailyCost(wl.memoryCost)
+  const dailyStorageCost = toDailyCost(wl.storageCost ?? 0)
+  const dailyGpuCost = toDailyCost(wl.gpuCost ?? 0)
+  const allocTotal =
+    dailyCpuCost + dailyMemCost + dailyStorageCost + dailyGpuCost
+  const cpuPct = allocTotal > 0 ? (dailyCpuCost / allocTotal) * 100 : 50
+  const memPct = allocTotal > 0 ? (dailyMemCost / allocTotal) * 100 : 50
+  const storagePct = allocTotal > 0 ? (dailyStorageCost / allocTotal) * 100 : 0
+  const gpuPct = allocTotal > 0 ? (dailyGpuCost / allocTotal) * 100 : 0
   const barWidth = maxCost > 0 ? (wl.hourlyCost / maxCost) * 100 : 0
   const eff = wl.efficiency ?? 0
   const hasEff = eff > 0
   const kindLabel = wl.kind === 'standalone' ? 'pod' : wl.kind
 
   return (
-    <div className="grid grid-cols-[minmax(180px,1fr)_90px_90px_80px_minmax(160px,1fr)_120px] gap-2 px-4 py-2 text-left">
+    <div className="grid grid-cols-[minmax(180px,1fr)_90px_90px_80px_minmax(160px,1fr)_160px] gap-2 px-4 py-2 text-left">
       <span className="flex items-center gap-1.5 min-w-0 pl-5">
-        <span className="text-[10px] text-theme-text-tertiary bg-theme-surface px-1 py-0.5 rounded shrink-0">{kindLabel}</span>
-        <span className="text-xs text-theme-text-secondary truncate">{wl.name}</span>
+        <span className="text-[10px] text-theme-text-tertiary bg-theme-surface px-1 py-0.5 rounded shrink-0">
+          {kindLabel}
+        </span>
+        <span className="text-xs text-theme-text-secondary truncate">
+          {wl.name}
+        </span>
         {wl.replicas > 1 && (
-          <span className="text-[10px] text-theme-text-tertiary shrink-0">{wl.replicas}x</span>
+          <span className="text-[10px] text-theme-text-tertiary shrink-0">
+            {wl.replicas}x
+          </span>
         )}
       </span>
-      <span className="text-xs text-theme-text-secondary tabular-nums text-right">{formatCost(wl.hourlyCost)}</span>
-      <span className="text-xs text-theme-text-tertiary tabular-nums text-right">~{formatCost(monthlyCost)}</span>
+      <span className="text-xs text-theme-text-secondary tabular-nums text-right">
+        {formatCost(dailyCost)}
+      </span>
+      <span className="text-xs text-theme-text-tertiary tabular-nums text-right">
+        ~{formatCost(monthlyCost)}
+      </span>
       <span className="text-right flex items-center justify-end gap-1">
         {hasEff ? (
           <>
-            <span className={`text-[10px] font-medium tabular-nums ${efficiencyColor(eff)}`}>
+            <span
+              className={`text-[10px] font-medium tabular-nums ${efficiencyColor(eff)}`}
+            >
               {eff.toFixed(0)}%
             </span>
             {eff < 25 && <span className="text-[9px] text-red-400">low</span>}
@@ -338,13 +502,36 @@ function WorkloadCostRow({ wl, maxCost }: { wl: OpenCostWorkloadCost; maxCost: n
         )}
       </span>
       <span className="flex items-center gap-2">
-        <div className="flex-1 h-1.5 rounded-full overflow-hidden bg-theme-hover flex" style={{ maxWidth: `${Math.max(barWidth, 3)}%` }}>
-          <div className="h-full bg-blue-500/50" style={{ width: `${cpuPct}%` }} />
-          <div className="h-full bg-purple-500/50" style={{ width: `${100 - cpuPct}%` }} />
+        <div
+          className="flex-1 h-1.5 rounded-full overflow-hidden bg-theme-hover flex"
+          style={{ maxWidth: `${Math.max(barWidth, 3)}%` }}
+        >
+          <div
+            className="h-full bg-blue-500/50"
+            style={{ width: `${cpuPct}%` }}
+          />
+          <div
+            className="h-full bg-purple-500/50"
+            style={{ width: `${memPct}%` }}
+          />
+          {(wl.storageCost ?? 0) > 0 && (
+            <div
+              className="h-full bg-teal-500/50"
+              style={{ width: `${storagePct}%` }}
+            />
+          )}
+          {(wl.gpuCost ?? 0) > 0 && (
+            <div
+              className="h-full bg-amber-500/50"
+              style={{ width: `${gpuPct}%` }}
+            />
+          )}
         </div>
       </span>
       <span className="text-[10px] text-theme-text-tertiary tabular-nums text-right">
-        {formatCost(wl.cpuCost)} / {formatCost(wl.memoryCost)}
+        {formatCost(dailyCpuCost)} / {formatCost(dailyMemCost)}
+        {(wl.storageCost ?? 0) > 0 && ` / ${formatCost(dailyStorageCost)}`}
+        {(wl.gpuCost ?? 0) > 0 && ` / ${formatCost(dailyGpuCost)}`}
       </span>
     </div>
   )
@@ -358,29 +545,41 @@ function NodeCostTable({ nodes }: { nodes: OpenCostNodeCost[] }) {
           <div>
             <div className="flex items-center gap-2">
               <Server className="w-4 h-4 text-theme-text-tertiary" />
-              <span className="text-sm font-semibold text-theme-text-primary">Node Costs</span>
-              <span className="text-[10px] text-theme-text-quaternary">current pricing</span>
+              <span className="text-sm font-semibold text-theme-text-primary">
+                Node Costs
+              </span>
+              <span className="text-[10px] text-theme-text-quaternary">
+                current daily run rate
+              </span>
             </div>
             <p className="text-[11px] text-theme-text-tertiary mt-0.5 ml-6">
-              Per-machine cloud pricing — namespace costs above show how this capacity is allocated
+              Per-machine cloud pricing — namespace costs above show how this
+              capacity is allocated
             </p>
           </div>
-          <span className="text-xs text-theme-text-tertiary">{nodes.length} nodes</span>
+          <span className="text-xs text-theme-text-tertiary">
+            {nodes.length} nodes
+          </span>
         </div>
       </div>
 
       {/* Table header */}
-      <div className="grid grid-cols-[minmax(200px,1fr)_minmax(120px,1fr)_90px_100px_140px] gap-2 px-4 py-2 border-b border-theme-border text-[11px] font-medium text-theme-text-tertiary uppercase tracking-wider">
+      <div className="grid grid-cols-[minmax(200px,1fr)_minmax(120px,1fr)_90px_100px_170px] gap-2 px-4 py-2 border-b border-theme-border text-[11px] font-medium text-theme-text-tertiary uppercase tracking-wider">
         <span>Node</span>
         <span>Instance Type</span>
-        <span className="text-right">Hourly</span>
-        <span className="text-right cursor-help" title="Projected from current hourly rate — not historical spend">Monthly*</span>
-        <span className="text-right">CPU / Memory</span>
+        <span className="text-right">Daily</span>
+        <span
+          className="text-right cursor-help"
+          title="Projected from current daily rate — not historical spend"
+        >
+          Monthly*
+        </span>
+        <span className="text-right">CPU / Memory / GPU</span>
       </div>
 
       {/* Node rows */}
       <div className="divide-y divide-theme-border/50">
-        {nodes.map((node) => (
+        {nodes.map(node => (
           <NodeCostRow key={node.name} node={node} />
         ))}
       </div>
@@ -389,21 +588,39 @@ function NodeCostTable({ nodes }: { nodes: OpenCostNodeCost[] }) {
 }
 
 function NodeCostRow({ node }: { node: OpenCostNodeCost }) {
-  const monthlyCost = node.hourlyCost * 730
+  const dailyCost = toDailyCost(node.hourlyCost)
+  const monthlyCost = dailyCost * DAYS_PER_MONTH
+  const gpuUnits = node.gpuCount ?? 0
+  const gpuDailyCost = toDailyCost(
+    (node.gpuCost ?? 0) * (gpuUnits > 0 ? gpuUnits : 1)
+  )
 
   return (
-    <div className="grid grid-cols-[minmax(200px,1fr)_minmax(120px,1fr)_90px_100px_140px] gap-2 px-4 py-2.5">
-      <span className="text-sm text-theme-text-primary truncate font-medium" title={node.name}>
+    <div className="grid grid-cols-[minmax(200px,1fr)_minmax(120px,1fr)_90px_100px_170px] gap-2 px-4 py-2.5">
+      <span
+        className="text-sm text-theme-text-primary truncate font-medium"
+        title={node.name}
+      >
         {node.name}
       </span>
       <span className="text-xs text-theme-text-secondary truncate">
         {node.instanceType || '-'}
-        {node.region && <span className="text-theme-text-quaternary ml-1.5">({node.region})</span>}
+        {node.region && (
+          <span className="text-theme-text-quaternary ml-1.5">
+            ({node.region})
+          </span>
+        )}
       </span>
-      <span className="text-sm text-theme-text-primary tabular-nums text-right">{formatCost(node.hourlyCost)}</span>
-      <span className="text-sm text-theme-text-secondary tabular-nums text-right">~{formatCost(monthlyCost)}</span>
+      <span className="text-sm text-theme-text-primary tabular-nums text-right">
+        {formatCost(dailyCost)}
+      </span>
+      <span className="text-sm text-theme-text-secondary tabular-nums text-right">
+        ~{formatCost(monthlyCost)}
+      </span>
       <span className="text-[11px] text-theme-text-tertiary tabular-nums text-right">
-        {formatCost(node.cpuCost)} / {formatCost(node.memoryCost)}
+        {formatCost(toDailyCost(node.cpuCost))} /{' '}
+        {formatCost(toDailyCost(node.memoryCost))}
+        {(node.gpuCost ?? 0) > 0 && ` / ${formatCost(gpuDailyCost)}`}
       </span>
     </div>
   )
@@ -422,13 +639,18 @@ function CostHelpDialog({ onClose }: { onClose: () => void }) {
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center">
-      <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" onClick={onClose} />
+      <div
+        className="absolute inset-0 bg-black/60 backdrop-blur-sm"
+        onClick={onClose}
+      />
       <div className="relative bg-theme-surface border border-theme-border rounded-lg shadow-2xl max-w-lg w-full mx-4 max-h-[80vh] overflow-y-auto">
         {/* Header */}
         <div className="flex items-center justify-between p-4 border-b border-theme-border sticky top-0 bg-theme-surface rounded-t-lg">
           <div className="flex items-center gap-2">
             <HelpCircle className="w-5 h-5 text-indigo-500" />
-            <h2 className="text-base font-semibold text-theme-text-primary">Understanding Cost Data</h2>
+            <h2 className="text-base font-semibold text-theme-text-primary">
+              Understanding Cost Data
+            </h2>
           </div>
           <button
             onClick={onClose}
@@ -441,76 +663,107 @@ function CostHelpDialog({ onClose }: { onClose: () => void }) {
         <div className="p-4 space-y-5 text-sm text-theme-text-secondary">
           {/* Where costs come from */}
           <section>
-            <h3 className="text-sm font-semibold text-theme-text-primary mb-1.5">Where do these costs come from?</h3>
+            <h3 className="text-sm font-semibold text-theme-text-primary mb-1.5">
+              Where do these costs come from?
+            </h3>
             <p>
-              Cost data comes from <strong>OpenCost</strong>, an open-source tool that combines your cloud provider's
-              pricing (how much each node costs per hour) with Kubernetes resource allocation data. This gives you
-              a dollar value for each workload running on your cluster.
+              Cost data comes from <strong>OpenCost</strong>, an open-source
+              tool that combines your cloud provider's pricing with Kubernetes
+              resource allocation data. This gives you a dollar value for each
+              workload running on your cluster.
             </p>
           </section>
 
           {/* What costs represent */}
           <section>
-            <h3 className="text-sm font-semibold text-theme-text-primary mb-1.5">What does "hourly cost" mean?</h3>
+            <h3 className="text-sm font-semibold text-theme-text-primary mb-1.5">
+              What does "daily cost" mean?
+            </h3>
             <p>
-              Each workload <strong>requests</strong> a certain amount of CPU and memory when it's deployed.
-              These requests reserve capacity on a node — that reserved capacity has a cost based on
-              the node's cloud pricing, whether the workload actually uses it or not.
+              Each workload <strong>requests</strong> a certain amount of CPU
+              and memory when it's deployed. These requests reserve capacity on
+              a node — that reserved capacity has a cost based on the node's
+              cloud pricing, whether the workload actually uses it or not.
             </p>
             <p className="mt-1.5">
-              The hourly cost shown here is based on what your workloads have <strong>reserved</strong> (requested),
-              not what they're actually consuming. Monthly estimates simply multiply the current hourly rate by 730 hours.
+              The daily cost shown here is based on what your workloads have{' '}
+              <strong>reserved</strong> (requested), not what they're actually
+              consuming. That includes CPU, memory, PVC-backed storage, and GPU
+              allocations when OpenCost exposes those metrics. It's the current
+              hourly rate projected across 24 hours. Monthly estimates project
+              that daily run rate across an average month.
             </p>
           </section>
 
           {/* Efficiency */}
           <section>
-            <h3 className="text-sm font-semibold text-theme-text-primary mb-1.5">What is efficiency?</h3>
+            <h3 className="text-sm font-semibold text-theme-text-primary mb-1.5">
+              What is efficiency?
+            </h3>
             <p>
-              Efficiency compares what you're <strong>actually using</strong> versus what you've <strong>reserved</strong>,
-              weighted by cost. If a namespace reserves $1/hr of resources but only uses $0.40 worth, it's 40% efficient —
-              the other $0.60/hr is idle capacity you're paying for but not using.
+              Efficiency compares what you're <strong>actually using</strong>{' '}
+              versus what you've <strong>reserved</strong>, weighted by cost. If
+              a namespace reserves $24/day of resources but only uses $9.60/day
+              worth, it's 40% efficient — the other $14.40/day is idle capacity
+              you're paying for but not using.
             </p>
             <p className="mt-2 text-theme-text-tertiary text-xs">
-              Some over-provisioning is normal and healthy — it gives your workloads room to handle
-              traffic spikes without running out of resources. Don't aim for 100%.
+              Some over-provisioning is normal and healthy — it gives your
+              workloads room to handle traffic spikes without running out of
+              resources. Don't aim for 100%.
             </p>
             <div className="mt-2 space-y-1">
               <div className="flex items-center gap-2">
                 <span className="w-2 h-2 rounded-full bg-emerald-400" />
-                <span><strong>50%+</strong> — well-utilized</span>
+                <span>
+                  <strong>50%+</strong> — well-utilized
+                </span>
               </div>
               <div className="flex items-center gap-2">
                 <span className="w-2 h-2 rounded-full bg-amber-400" />
-                <span><strong>25–50%</strong> — typical for most clusters, some room to optimize</span>
+                <span>
+                  <strong>25–50%</strong> — typical for most clusters, some room
+                  to optimize
+                </span>
               </div>
               <div className="flex items-center gap-2">
                 <span className="w-2 h-2 rounded-full bg-red-400" />
-                <span><strong>Below 25%</strong> — worth investigating, may be significantly over-provisioned</span>
+                <span>
+                  <strong>Below 25%</strong> — worth investigating, may be
+                  significantly over-provisioned
+                </span>
               </div>
             </div>
           </section>
 
           {/* Time context */}
           <section>
-            <h3 className="text-sm font-semibold text-theme-text-primary mb-1.5">How fresh is this data?</h3>
+            <h3 className="text-sm font-semibold text-theme-text-primary mb-1.5">
+              How fresh is this data?
+            </h3>
             <p>
-              Cost rates, efficiency, and breakdowns are <strong>snapshots based on the last 1 hour</strong> of data.
-              They update automatically every minute. The trend chart is the only historical view — it shows how
-              total cost has changed over the selected time range (6 hours, 24 hours, or 7 days).
+              Cost rates, efficiency, and breakdowns are{' '}
+              <strong>snapshots based on the last 1 hour</strong> of data. They
+              update automatically every minute. The trend chart is the only
+              historical view — it shows how total cost has changed over the
+              selected time range (6 hours, 24 hours, or 7 days).
             </p>
             <p className="mt-1.5">
-              Because costs are based on a 1-hour window, short-lived spikes or dips may not be reflected.
-              The trend chart gives you the longer-term picture.
+              Because costs are based on a 1-hour window, short-lived spikes or
+              dips may not be reflected. The trend chart gives you the
+              longer-term picture.
             </p>
           </section>
 
           {/* Node costs */}
           <section>
-            <h3 className="text-sm font-semibold text-theme-text-primary mb-1.5">What are node costs?</h3>
+            <h3 className="text-sm font-semibold text-theme-text-primary mb-1.5">
+              What are node costs?
+            </h3>
             <p>
-              Node costs show the hourly price of each machine in your cluster, based on instance type and
-              cloud pricing. This is the total capacity cost — the namespace and workload breakdowns above
+              Node costs show the current daily run rate of each machine in your
+              cluster, based on instance type and cloud pricing. This is the
+              total capacity cost — the namespace and workload breakdowns above
               show how that capacity is allocated across your workloads.
             </p>
           </section>

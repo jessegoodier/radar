@@ -1,7 +1,7 @@
 import { useState, useMemo } from 'react'
 import { useLocation, useNavigate } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
-import { ApiError, fetchJSON, isForbiddenError, useSecretCertExpiry, useTopPodMetrics, useTopNodeMetrics } from '../../api/client'
+import { ApiError, fetchJSON, isForbiddenError, useSecretCertExpiry, useTopPodMetrics, useTopNodeMetrics, useOpenCostSummary, useOpenCostNodes } from '../../api/client'
 import { useAPIResources } from '../../api/apiResources'
 import { usePinnedKinds } from '../../hooks/useFavorites'
 import { useOpenLogs, useOpenWorkloadLogs } from '../dock'
@@ -101,6 +101,10 @@ export function ResourcesView({ namespaces, selectedResource, onResourceClick, o
   // Certificate expiry
   const { data: certExpiry, isError: certExpiryError } = useSecretCertExpiry()
 
+  // Cost data
+  const { data: costSummary } = useOpenCostSummary()
+  const { data: costNodes } = useOpenCostNodes()
+
   // Pinned kinds
   const { pinned, togglePin, isPinned } = usePinnedKinds()
 
@@ -133,6 +137,8 @@ export function ResourcesView({ namespaces, selectedResource, onResourceClick, o
       topNodeMetrics={topNodeMetrics}
       certExpiry={certExpiry}
       certExpiryError={certExpiryError}
+      namespaceCosts={costSummary?.namespaces}
+      nodeCosts={costNodes?.nodes}
       // Pinned kinds
       pinned={pinned}
       togglePin={togglePin}

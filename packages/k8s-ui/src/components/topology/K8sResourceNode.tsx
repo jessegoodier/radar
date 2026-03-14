@@ -421,10 +421,10 @@ export const K8sResourceNode = memo(function K8sResourceNode({
             {name}
           </div>
 
-          {/* Subtitle */}
-          {subtitle && (
+          {/* Subtitle — or cost label for namespace nodes */}
+          {!!(subtitle || nodeData.costLabel) && (
             <div className="text-xs text-theme-text-secondary truncate mt-0.5">
-              {subtitle}
+              {subtitle || String(nodeData.costLabel)}
             </div>
           )}
         </div>

@@ -1,7 +1,34 @@
 import { useState, useEffect } from 'react'
-import { Server, ExternalLink, Scale, Minus, Plus, Loader2 } from 'lucide-react'
-import { Section, PropertyList, Property, ConditionsSection, PodTemplateSection, AlertBanner, ResourceLink } from '../../ui/drawer-components'
+import {
+  Server,
+  ExternalLink,
+  Scale,
+  Minus,
+  Plus,
+  Loader2,
+  DollarSign,
+} from 'lucide-react'
+import { clsx } from 'clsx'
+import {
+  Section,
+  PropertyList,
+  Property,
+  ConditionsSection,
+  PodTemplateSection,
+  AlertBanner,
+  ResourceLink,
+} from '../../ui/drawer-components'
 import { DialogPortal } from '../../ui/DialogPortal'
+
+export interface WorkloadCostInfo {
+  hourlyCost: number
+  cpuCost: number
+  memoryCost: number
+  storageCost?: number
+  gpuCost?: number
+  replicas: number
+  efficiency?: number
+}
 
 interface WorkloadRendererProps {
   kind: string
@@ -11,13 +38,23 @@ interface WorkloadRendererProps {
   onScale?: (replicas: number) => Promise<void>
   isScalePending?: boolean
   onRequestRefresh?: () => void
+  costData?: WorkloadCostInfo
+}
+
+const HOURS_PER_DAY = 24
+
+function toDailyCost(hourlyCost: number): number {
+  return hourlyCost * HOURS_PER_DAY
 }
 
 // Check if the workload is actively progressing (scaling, rolling update)
 function isWorkloadProgressing(status: any): boolean {
   const conditions = status.conditions || []
   const progressing = conditions.find((c: any) => c.type === 'Progressing')
-  return progressing?.status === 'True' && progressing?.reason !== 'ProgressDeadlineExceeded'
+  return (
+    progressing?.status === 'True' &&
+    progressing?.reason !== 'ProgressDeadlineExceeded'
+  )
 }
 
 // Extract real problems from workload status (excludes normal rollout progress)
@@ -52,7 +89,11 @@ function getWorkloadProblems(status: any, spec: any, kind: string): string[] {
   // Check conditions — real failures always shown
   const conditions = status.conditions || []
   for (const cond of conditions) {
-    if (cond.status === 'True' && cond.type === 'ReplicaFailure' && cond.message) {
+    if (
+      cond.status === 'True' &&
+      cond.type === 'ReplicaFailure' &&
+      cond.message
+    ) {
       problems.push(cond.message)
     }
     // Show condition failures, but skip Available=False during active rollout (that's expected)
@@ -66,7 +107,11 @@ function getWorkloadProblems(status: any, spec: any, kind: string): string[] {
 }
 
 // Get progress info for active rollouts
-function getWorkloadProgress(status: any, spec: any, kind: string): string | null {
+function getWorkloadProgress(
+  status: any,
+  spec: any,
+  kind: string
+): string | null {
   if (!isWorkloadProgressing(status)) return null
 
   const isDaemonSet = kind === 'daemonsets'
@@ -86,14 +131,50 @@ function getWorkloadProgress(status: any, spec: any, kind: string): string | nul
   return null
 }
 
-export function WorkloadRenderer({ kind, data, onNavigate, onViewPods, onScale, isScalePending, onRequestRefresh }: WorkloadRendererProps) {
+function formatCost(value: number): string {
+  if (value >= 1000) return `$${(value / 1000).toFixed(1)}k`
+  if (value >= 1) return `$${value.toFixed(2)}`
+  if (value >= 0.01) return `$${value.toFixed(3)}`
+  if (value > 0) return `$${value.toFixed(4)}`
+  return '$0.00'
+}
+
+function efficiencyColor(efficiency: number): string {
+  if (efficiency >= 50) return 'text-emerald-400'
+  if (efficiency >= 25) return 'text-amber-400'
+  return 'text-red-400'
+}
+
+export function WorkloadRenderer({
+  kind,
+  data,
+  onNavigate,
+  onViewPods,
+  onScale,
+  isScalePending,
+  onRequestRefresh,
+  costData,
+}: WorkloadRendererProps) {
   const status = data.status || {}
   const spec = data.spec || {}
   const metadata = data.metadata || {}
 
   const isDaemonSet = kind === 'daemonsets'
   const isStatefulSet = kind === 'statefulsets'
-  const isScalable = (kind === 'deployments' || kind === 'statefulsets') && !!onScale
+  const isScalable =
+    (kind === 'deployments' || kind === 'statefulsets') && !!onScale
+
+  // Cost split percentages
+  const storageCost = costData?.storageCost ?? 0
+  const gpuCost = costData?.gpuCost ?? 0
+  const costTotal = costData
+    ? costData.cpuCost + costData.memoryCost + storageCost + gpuCost
+    : 0
+  const costCpuPct = costTotal > 0 ? (costData!.cpuCost / costTotal) * 100 : 0
+  const costMemPct =
+    costTotal > 0 ? (costData!.memoryCost / costTotal) * 100 : 0
+  const costStoragePct = costTotal > 0 ? (storageCost / costTotal) * 100 : 0
+  const costGpuPct = costTotal > 0 ? (gpuCost / costTotal) * 100 : 0
 
   // Scale dialog state
   const [showScaleDialog, setShowScaleDialog] = useState(false)
@@ -179,15 +260,24 @@ export function WorkloadRenderer({ kind, data, onNavigate, onViewPods, onScale, 
               <Property label="Desired" value={status.desiredNumberScheduled} />
               <Property label="Current" value={status.currentNumberScheduled} />
               <Property label="Ready" value={status.numberReady} />
-              <Property label="Up-to-date" value={status.updatedNumberScheduled} />
+              <Property
+                label="Up-to-date"
+                value={status.updatedNumberScheduled}
+              />
               <Property label="Available" value={status.numberAvailable} />
             </>
           ) : (
             <>
-              <Property label="Replicas" value={`${status.readyReplicas || 0}/${spec.replicas || 0}`} />
+              <Property
+                label="Replicas"
+                value={`${status.readyReplicas || 0}/${spec.replicas || 0}`}
+              />
               <Property label="Updated" value={status.updatedReplicas} />
               <Property label="Available" value={status.availableReplicas} />
-              <Property label="Unavailable" value={status.unavailableReplicas} />
+              <Property
+                label="Unavailable"
+                value={status.unavailableReplicas}
+              />
             </>
           )}
         </PropertyList>
@@ -214,7 +304,11 @@ export function WorkloadRenderer({ kind, data, onNavigate, onViewPods, onScale, 
       </Section>
 
       {/* Scale Dialog */}
-      <DialogPortal open={showScaleDialog} onClose={() => setShowScaleDialog(false)} className="w-80 p-4">
+      <DialogPortal
+        open={showScaleDialog}
+        onClose={() => setShowScaleDialog(false)}
+        className="w-80 p-4"
+      >
         <h3 className="text-sm font-medium text-theme-text-primary mb-4">
           Scale {metadata.name}
         </h3>
@@ -233,13 +327,19 @@ export function WorkloadRenderer({ kind, data, onNavigate, onViewPods, onScale, 
             min="0"
             max="10000"
             value={targetReplicas}
-            onChange={(e) => setTargetReplicas(Math.min(10000, Math.max(0, parseInt(e.target.value) || 0)))}
+            onChange={e =>
+              setTargetReplicas(
+                Math.min(10000, Math.max(0, parseInt(e.target.value) || 0))
+              )
+            }
             className="w-20 text-center text-2xl font-semibold bg-theme-elevated border border-theme-border rounded-lg py-2 text-theme-text-primary focus:outline-none focus:border-blue-500"
             autoFocus
           />
 
           <button
-            onClick={() => setTargetReplicas(Math.min(10000, targetReplicas + 1))}
+            onClick={() =>
+              setTargetReplicas(Math.min(10000, targetReplicas + 1))
+            }
             disabled={targetReplicas >= 10000}
             className="p-2 rounded-lg bg-theme-elevated hover:bg-theme-hover text-theme-text-secondary hover:text-theme-text-primary transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
           >
@@ -251,7 +351,8 @@ export function WorkloadRenderer({ kind, data, onNavigate, onViewPods, onScale, 
           Current: {spec.replicas || 0} replicas
           {targetReplicas !== (spec.replicas || 0) && (
             <span className="text-theme-text-secondary">
-              {' '}→ {targetReplicas}
+              {' '}
+              → {targetReplicas}
             </span>
           )}
         </div>
@@ -276,24 +377,46 @@ export function WorkloadRenderer({ kind, data, onNavigate, onViewPods, onScale, 
       <Section title="Strategy">
         <PropertyList>
           {isDaemonSet || isStatefulSet ? (
-            <Property label="Update Strategy" value={spec.updateStrategy?.type} />
+            <Property
+              label="Update Strategy"
+              value={spec.updateStrategy?.type}
+            />
           ) : (
             <>
               <Property label="Strategy" value={spec.strategy?.type} />
               {spec.strategy?.rollingUpdate && (
                 <>
-                  <Property label="Max Surge" value={spec.strategy.rollingUpdate.maxSurge} />
-                  <Property label="Max Unavailable" value={spec.strategy.rollingUpdate.maxUnavailable} />
+                  <Property
+                    label="Max Surge"
+                    value={spec.strategy.rollingUpdate.maxSurge}
+                  />
+                  <Property
+                    label="Max Unavailable"
+                    value={spec.strategy.rollingUpdate.maxUnavailable}
+                  />
                 </>
               )}
             </>
           )}
           {isStatefulSet && (
             <>
-              <Property label="Service Name" value={
-                spec.serviceName ? <ResourceLink name={spec.serviceName} kind="services" namespace={data.metadata?.namespace || ''} onNavigate={onNavigate} /> : undefined
-              } />
-              <Property label="Pod Management" value={spec.podManagementPolicy || 'OrderedReady'} />
+              <Property
+                label="Service Name"
+                value={
+                  spec.serviceName ? (
+                    <ResourceLink
+                      name={spec.serviceName}
+                      kind="services"
+                      namespace={data.metadata?.namespace || ''}
+                      onNavigate={onNavigate}
+                    />
+                  ) : undefined
+                }
+              />
+              <Property
+                label="Pod Management"
+                value={spec.podManagementPolicy || 'OrderedReady'}
+              />
             </>
           )}
         </PropertyList>
@@ -302,6 +425,103 @@ export function WorkloadRenderer({ kind, data, onNavigate, onViewPods, onScale, 
       <Section title="Pod Template" defaultExpanded={false}>
         <PodTemplateSection template={spec.template} />
       </Section>
+
+      {/* Cost (from OpenCost) */}
+      {costData && (
+        <Section title="Cost" icon={DollarSign} defaultExpanded>
+          <PropertyList>
+            <Property
+              label="Daily"
+              value={formatCost(toDailyCost(costData.hourlyCost))}
+            />
+            <Property
+              label="Monthly (est.)"
+              value={`~${formatCost(costData.hourlyCost * 730)}`}
+            />
+            {costData.replicas > 0 && (
+              <Property
+                label="Per Replica"
+                value={
+                  formatCost(
+                    toDailyCost(costData.hourlyCost / costData.replicas)
+                  ) + '/day'
+                }
+              />
+            )}
+          </PropertyList>
+          <div className="mt-3 pt-3 border-t border-theme-border space-y-2">
+            <div className="flex items-center justify-between text-xs">
+              <span className="text-theme-text-tertiary">CPU</span>
+              <span className="text-theme-text-secondary tabular-nums">
+                {formatCost(toDailyCost(costData.cpuCost))}/day
+              </span>
+            </div>
+            <div className="flex items-center justify-between text-xs">
+              <span className="text-theme-text-tertiary">Memory</span>
+              <span className="text-theme-text-secondary tabular-nums">
+                {formatCost(toDailyCost(costData.memoryCost))}/day
+              </span>
+            </div>
+            {storageCost > 0 && (
+              <div className="flex items-center justify-between text-xs">
+                <span className="text-theme-text-tertiary">Storage (PVC)</span>
+                <span className="text-theme-text-secondary tabular-nums">
+                  {formatCost(toDailyCost(storageCost))}/day
+                </span>
+              </div>
+            )}
+            {gpuCost > 0 && (
+              <div className="flex items-center justify-between text-xs">
+                <span className="text-theme-text-tertiary">GPU</span>
+                <span className="text-theme-text-secondary tabular-nums">
+                  {formatCost(toDailyCost(gpuCost))}/day
+                </span>
+              </div>
+            )}
+            {/* CPU/Memory/Storage/GPU split bar */}
+            {costTotal > 0 && (
+              <div className="h-1.5 rounded-full overflow-hidden bg-theme-hover flex mt-1">
+                <div
+                  className="h-full bg-blue-500"
+                  style={{ width: `${costCpuPct}%` }}
+                />
+                <div
+                  className="h-full bg-purple-500"
+                  style={{ width: `${costMemPct}%` }}
+                />
+                {costStoragePct > 0 && (
+                  <div
+                    className="h-full bg-teal-500"
+                    style={{ width: `${costStoragePct}%` }}
+                  />
+                )}
+                {costGpuPct > 0 && (
+                  <div
+                    className="h-full bg-amber-500"
+                    style={{ width: `${costGpuPct}%` }}
+                  />
+                )}
+              </div>
+            )}
+            {costData.efficiency !== undefined && (
+              <div className="flex items-center justify-between text-xs pt-1">
+                <span className="text-theme-text-tertiary">Efficiency</span>
+                <span
+                  className={clsx(
+                    'font-medium tabular-nums',
+                    efficiencyColor(costData.efficiency)
+                  )}
+                >
+                  {costData.efficiency.toFixed(0)}%
+                </span>
+              </div>
+            )}
+          </div>
+          <div className="mt-2 text-[10px] text-theme-text-quaternary">
+            Powered by OpenCost
+          </div>
+        </Section>
+      )}
 
       <ConditionsSection conditions={status.conditions} />
     </>

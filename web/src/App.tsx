@@ -29,7 +29,7 @@ import { ShortcutHelpOverlay } from './components/ui/ShortcutHelpOverlay'
 import { CommandPalette } from './components/ui/CommandPalette'
 import { DiagnosticsOverlay } from './components/ui/DiagnosticsOverlay'
 import { useEventSource } from './hooks/useEventSource'
-import { useNamespaces, useSwitchContext } from './api/client'
+import { useNamespaces, useSwitchContext, useOpenCostSummary } from './api/client'
 import { KeyboardShortcutProvider, useRegisterShortcut, useRegisterShortcuts } from './hooks/useKeyboardShortcuts'
 import { useAnimatedUnmount } from './hooks/useAnimatedUnmount'
 import { Loader2 } from 'lucide-react'
@@ -40,6 +40,8 @@ import { LargeClusterNamespacePicker } from './components/shared/LargeClusterNam
 import { SettingsDialog } from './components/settings/SettingsDialog'
 import type { TopologyNode, GroupingMode, MainView, SelectedResource, SelectedHelmRelease, NodeKind, Topology } from './types'
 import { kindToPlural, openExternal } from './utils/navigation'
+
+const HOURS_PER_DAY = 24
 
 // All possible node kinds (core + GitOps)
 const ALL_NODE_KINDS: NodeKind[] = [
@@ -329,6 +331,9 @@ function AppInner() {
   // Query client for cache invalidation
   const queryClient = useQueryClient()
 
+  // Cost data for topology overlays
+  const { data: costSummary } = useOpenCostSummary()
+
   // SSE connection for real-time updates
   const { topology, connected, reconnect: reconnectSSE } = useEventSource(namespaces, topologyMode, {
     onContextSwitchComplete: endSwitch,
@@ -490,11 +495,37 @@ function AppInner() {
     setSelectedHelmRelease(null)
   }, [namespacesKey])
 
-  // Filter topology based on visible kinds
+  // Build namespace cost lookup for topology overlays
+  const namespaceCostLookup = useMemo((): Map<string, number> => {
+    if (!costSummary?.namespaces) return new Map()
+    return new Map(costSummary.namespaces.map(ns => [ns.name, ns.hourlyCost]))
+  }, [costSummary])
+
+  // Filter topology based on visible kinds and enrich namespace nodes with cost labels
   const filteredTopology = useMemo((): Topology | null => {
     if (!topology) return null
 
-    const filteredNodes = topology.nodes.filter(node => visibleKinds.has(node.kind))
+    const filteredNodes = topology.nodes
+      .filter(node => visibleKinds.has(node.kind))
+      .map(node => {
+        if (node.kind !== 'Namespace') return node
+        const hourlyCost = namespaceCostLookup.get(node.name)
+        if (hourlyCost === undefined) return node
+        const dailyCost = hourlyCost * HOURS_PER_DAY
+        const costLabel = dailyCost >= 1
+          ? `$${dailyCost.toFixed(2)}/day`
+          : dailyCost > 0
+            ? `$${dailyCost.toFixed(3)}/day`
+            : null
+        if (!costLabel) return node
+        return {
+          ...node,
+          data: {
+            ...node.data,
+            nodeData: { ...(node.data?.nodeData ?? {}), costLabel },
+          },
+        }
+      })
     const filteredNodeIds = new Set(filteredNodes.map(n => n.id))
 
     // Keep edges where both source and target are visible
@@ -515,7 +546,7 @@ function AppInner() {
       nodes: filteredNodes,
       edges: filteredEdges,
     }
-  }, [topology, visibleKinds])
+  }, [topology, visibleKinds, namespaceCostLookup])
 
   // Filter handlers
   const handleToggleKind = useCallback((kind: NodeKind) => {

@@ -1,6 +1,6 @@
 import { NodeRenderer as BaseNodeRenderer } from '@skyhook-io/k8s-ui/components/resources/renderers/NodeRenderer'
 import { useNavigate } from 'react-router-dom'
-import { useNodeMetrics, useNodeMetricsHistory, usePrometheusResourceMetrics, usePrometheusStatus } from '../../../api/client'
+import { useNodeMetrics, useNodeMetricsHistory, usePrometheusResourceMetrics, usePrometheusStatus, useOpenCostNodes } from '../../../api/client'
 import { serializeColumnFilters } from '../resource-utils'
 
 interface NodeRendererProps {
@@ -15,6 +15,10 @@ export function NodeRenderer({ data, relationships }: NodeRendererProps) {
   // Fetch node metrics
   const { data: metrics } = useNodeMetrics(nodeName)
   const { data: metricsHistory } = useNodeMetricsHistory(nodeName)
+
+  // Fetch node cost data
+  const { data: nodesData } = useOpenCostNodes()
+  const costData = nodesData?.nodes?.find(n => n.name === nodeName)
 
   // Determine whether to hide metrics-server section (Prometheus has data)
   const { data: prometheusStatus } = usePrometheusStatus()
@@ -39,6 +43,7 @@ export function NodeRenderer({ data, relationships }: NodeRendererProps) {
       metrics={metrics}
       metricsHistory={metricsHistory}
       hideMetricsServer={hideMetricsServer}
+      costData={costData}
     />
   )
 }
