@@ -169,6 +169,7 @@ import {
   RuntimeClassRenderer,
   LeaseRenderer,
   TraefikIngressRouteRenderer,
+  NamespaceRenderer,
 } from '../resources/renderers'
 import type { SelectedResource, Relationships, ResourceRef, SecretCertificateInfo, ResolvedEnvFrom } from '../../types'
 import type { CopyHandler } from '../ui/drawer-components'
@@ -197,6 +198,9 @@ export interface RendererOverrides {
   WorkloadRenderer?: React.ComponentType<{
     kind: string; data: any
     onNavigate?: (ref: ResourceRef) => void
+  }>
+  NamespaceRenderer?: React.ComponentType<{
+    data: any
   }>
 }
 
@@ -234,6 +238,7 @@ const KNOWN_KINDS = new Set([
   'channels', 'inmemorychannels', 'subscriptions', 'sequences', 'parallels',
   'knativeingresses', 'knativecertificates', 'serverlessservices', 'domainmappings',
   'ingressroutes', 'ingressroutetcps', 'ingressrouteudps',
+  'namespaces',
 ])
 
 // ============================================================================
@@ -301,6 +306,7 @@ export function ResourceRendererDispatch({
   const WorkloadComp = rendererOverrides?.WorkloadRenderer ?? WorkloadRenderer
   const NodeComp = rendererOverrides?.NodeRenderer ?? NodeRenderer
   const ServiceComp = rendererOverrides?.ServiceRenderer ?? ServiceRenderer
+  const NamespaceComp = rendererOverrides?.NamespaceRenderer ?? NamespaceRenderer
 
   const sidebarContent = showCommonSections && (
     <>
@@ -327,6 +333,7 @@ export function ResourceRendererDispatch({
         {kind === 'cronjobs' && <CronJobRenderer data={data} onNavigate={onNavigate} />}
         {(kind === 'hpas' || kind === 'horizontalpodautoscalers') && <HPARenderer data={data} onNavigate={onNavigate} />}
         {kind === 'nodes' && <NodeComp data={data} relationships={relationships} />}
+        {kind === 'namespaces' && <NamespaceComp data={data} />}
         {kind === 'persistentvolumeclaims' && <PVCRenderer data={data} onNavigate={onNavigate} />}
         {kind === 'rollouts' && <RolloutRenderer data={data} />}
         {kind === 'certificates' && !data?.apiVersion?.includes('networking.internal.knative.dev') && <CertificateRenderer data={data} />}

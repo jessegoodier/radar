@@ -28,12 +28,13 @@ import { PodRenderer } from '../resources/renderers/PodRenderer'
 import { NodeRenderer } from '../resources/renderers/NodeRenderer'
 import { ServiceRenderer } from '../resources/renderers/ServiceRenderer'
 import { WorkloadRenderer } from '../resources/renderers/WorkloadRenderer'
+import { NamespaceRenderer } from '../resources/renderers/NamespaceRenderer'
 
 type TabType = 'overview' | 'timeline' | 'logs' | 'metrics' | 'yaml'
 
 // Stable reference — web renderer wrappers inject platform hooks internally
 const rendererOverrides: RendererOverrides = {
-  PodRenderer, NodeRenderer, ServiceRenderer, WorkloadRenderer,
+  PodRenderer, NodeRenderer, ServiceRenderer, WorkloadRenderer, NamespaceRenderer,
 }
 
 // ============================================================================
