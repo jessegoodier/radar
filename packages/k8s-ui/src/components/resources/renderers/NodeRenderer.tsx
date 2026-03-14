@@ -1,9 +1,17 @@
-import { Server, HardDrive, Globe, Tag, Activity, ExternalLink } from 'lucide-react'
+import { Server, HardDrive, Globe, Tag, Activity, ExternalLink, DollarSign } from 'lucide-react'
 import { clsx } from 'clsx'
 import { Section, PropertyList, Property, ConditionsSection, AlertBanner } from '../../ui/drawer-components'
 import { MetricsChart } from '../../ui/MetricsChart'
-import { formatMemoryString } from '../../../utils/format'
+import { formatMemoryString, parseCPUToNanocores, parseMemoryToBytes } from '../../../utils/format'
 import type { MetricsDataPoint } from '../../../types/core'
+
+export interface NodeCostInfo {
+  hourlyCost: number
+  instanceType?: string
+  region?: string
+  cpuCost: number
+  memoryCost: number
+}
 
 interface NodeRendererProps {
   data: any
@@ -12,6 +20,13 @@ interface NodeRendererProps {
   metrics?: { usage?: { cpu: string; memory: string }; timestamp?: string }
   metricsHistory?: { dataPoints?: MetricsDataPoint[]; collectionError?: string }
   hideMetricsServer?: boolean
+  costData?: NodeCostInfo
+}
+
+const HOURS_PER_DAY = 24
+
+function toDailyCost(hourlyCost: number): number {
+  return hourlyCost * HOURS_PER_DAY
 }
 
 // Helper to handle undefined values
@@ -62,7 +77,22 @@ function getNodeProblems(data: any): string[] {
   return problems
 }
 
-export function NodeRenderer({ data, relationships, onViewPods, metrics, metricsHistory, hideMetricsServer }: NodeRendererProps) {
+function formatCost(value: number): string {
+  if (value >= 1000) return `$${(value / 1000).toFixed(1)}k`
+  if (value >= 1) return `$${value.toFixed(2)}`
+  if (value >= 0.01) return `$${value.toFixed(3)}`
+  if (value > 0) return `$${value.toFixed(4)}`
+  return '$0.00'
+}
+
+function formatCapacityLabel(value: number, unit: string): string {
+  if (value <= 0) return ''
+  const rounded = value >= 10 ? value.toFixed(0) : value.toFixed(1)
+  const normalized = rounded.endsWith('.0') ? rounded.slice(0, -2) : rounded
+  return `${normalized} ${unit}`
+}
+
+export function NodeRenderer({ data, relationships, onViewPods, metrics, metricsHistory, hideMetricsServer, costData }: NodeRendererProps) {
   const status = data.status || {}
   const spec = data.spec || {}
   const metadata = data.metadata || {}
@@ -84,6 +114,12 @@ export function NodeRenderer({ data, relationships, onViewPods, metrics, metrics
   const nodePool = labels['cloud.google.com/gke-nodepool'] || labels['eks.amazonaws.com/nodegroup']
   const machineFamily = labels['cloud.google.com/machine-family']
   const hasPlatformInfo = instanceType || zone || region || nodePool || machineFamily
+  const pricedCPU = capacity.cpu || allocatable.cpu || ''
+  const pricedMemory = capacity.memory || allocatable.memory || ''
+  const cpuCores = parseCPUToNanocores(pricedCPU) / 1_000_000_000
+  const memoryGiB = parseMemoryToBytes(pricedMemory) / (1024 ** 3)
+  const cpuDailyCost = costData ? toDailyCost(costData.cpuCost * cpuCores) : 0
+  const memoryDailyCost = costData ? toDailyCost(costData.memoryCost * memoryGiB) : 0
 
   return (
     <>
@@ -252,6 +288,38 @@ export function NodeRenderer({ data, relationships, onViewPods, metrics, metrics
             <Property label="Node Pool" value={nodePool} />
             <Property label="Machine Family" value={machineFamily} />
           </PropertyList>
+        </Section>
+      )}
+
+      {/* Instance Pricing (from OpenCost) */}
+      {costData && (
+        <Section title="Instance Pricing" icon={DollarSign} defaultExpanded>
+          <PropertyList>
+            {costData.instanceType && <Property label="Instance Type" value={costData.instanceType} />}
+            {costData.region && <Property label="Region" value={costData.region} />}
+            <Property label="Daily Cost" value={formatCost(toDailyCost(costData.hourlyCost))} />
+            <Property label="Monthly (est.)" value={`~${formatCost(costData.hourlyCost * 730)}`} />
+          </PropertyList>
+          <div className="mt-3 pt-3 border-t border-theme-border space-y-1.5">
+            <div className="flex items-center justify-between text-sm">
+              <span className="text-theme-text-secondary">
+                CPU
+                {cpuCores > 0 && <span className="text-theme-text-tertiary"> ({formatCapacityLabel(cpuCores, 'vCPU')})</span>}
+              </span>
+              <span className="text-theme-text-primary tabular-nums font-medium">{formatCost(cpuDailyCost)}/day</span>
+            </div>
+            <div className="flex items-center justify-between text-sm">
+              <span className="text-theme-text-secondary">
+                Memory
+                {memoryGiB > 0 && <span className="text-theme-text-tertiary"> ({formatCapacityLabel(memoryGiB, 'GiB')})</span>}
+              </span>
+              <span className="text-theme-text-primary tabular-nums font-medium">{formatCost(memoryDailyCost)}/day</span>
+            </div>
+          </div>
+          <div className="mt-2 text-[10px] text-theme-text-quaternary">
+            Powered by OpenCost
+            {cpuDailyCost > 0 || memoryDailyCost > 0 ? ' · CPU and memory are estimated from node capacity pricing' : ''}
+          </div>
         </Section>
       )}
 
