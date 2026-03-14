@@ -23,7 +23,7 @@ RUN npm run build
 # =============================================================================
 # Stage 2: Build Go backend
 # =============================================================================
-FROM golang:1.25-alpine AS backend-builder
+FROM golang:1.26-alpine AS backend-builder
 
 # Install build dependencies
 RUN apk add --no-cache git ca-certificates
@@ -32,11 +32,13 @@ WORKDIR /app
 
 # Download Go modules first (cacheable layer)
 COPY go.mod go.sum ./
+COPY pkg/go.mod pkg/go.sum ./pkg/
 RUN go mod download
 
 # Copy source code
 COPY cmd/ cmd/
 COPY internal/ internal/
+COPY pkg/ pkg/
 
 # Copy built frontend into embed location
 COPY --from=frontend-builder /app/web/dist internal/static/dist/
