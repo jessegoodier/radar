@@ -1,4 +1,9 @@
-import { useQuery, useMutation, useQueryClient, skipToken } from '@tanstack/react-query'
+import {
+  useQuery,
+  useMutation,
+  useQueryClient,
+  skipToken,
+} from '@tanstack/react-query'
 import type {
   Topology,
   ClusterInfo,
@@ -45,8 +50,14 @@ export function isForbiddenError(error: unknown): boolean {
 export async function fetchJSON<T>(path: string): Promise<T> {
   const response = await fetch(`${API_BASE}${path}`)
   if (!response.ok) {
-    const errorData = await response.json().catch(() => ({ error: 'Unknown error' }))
-    throw new ApiError(errorData.error || `HTTP ${response.status}`, response.status, errorData)
+    const errorData = await response
+      .json()
+      .catch(() => ({ error: 'Unknown error' }))
+    throw new ApiError(
+      errorData.error || `HTTP ${response.status}`,
+      response.status,
+      errorData
+    )
   }
   return response.json()
 }
@@ -100,7 +111,13 @@ export interface MetricSummary {
 }
 
 export interface DashboardResourceCounts {
-  pods: { total: number; running: number; pending: number; failed: number; succeeded: number }
+  pods: {
+    total: number
+    running: number
+    pending: number
+    failed: number
+    succeeded: number
+  }
   deployments: { total: number; available: number; unavailable: number }
   statefulSets: WorkloadCount
   daemonSets: WorkloadCount
@@ -196,7 +213,11 @@ export interface DashboardResponse {
   metrics: DashboardMetrics | null
   metricsServerAvailable: boolean
   certificateHealth: DashboardCertificateHealth | null
-  nodeVersionSkew: { versions: Record<string, string[]>; minVersion: string; maxVersion: string } | null
+  nodeVersionSkew: {
+    versions: Record<string, string[]>
+    minVersion: string
+    maxVersion: string
+  } | null
   deferredLoading?: boolean // True while deferred informers (secrets, events, etc.) are still syncing
 }
 
@@ -205,7 +226,8 @@ export interface DashboardCRDsResponse {
 }
 
 export function useDashboard(namespaces: string[] = []) {
-  const params = namespaces.length > 0 ? `?namespaces=${namespaces.join(',')}` : ''
+  const params =
+    namespaces.length > 0 ? `?namespaces=${namespaces.join(',')}` : ''
   return useQuery<DashboardResponse>({
     queryKey: ['dashboard', namespaces],
     queryFn: () => fetchJSON(`/dashboard${params}`),
@@ -221,7 +243,8 @@ export interface CertExpiry {
 }
 
 export function useSecretCertExpiry(namespaces: string[] = [], enabled = true) {
-  const params = namespaces.length > 0 ? `?namespaces=${namespaces.join(',')}` : ''
+  const params =
+    namespaces.length > 0 ? `?namespaces=${namespaces.join(',')}` : ''
   return useQuery<Record<string, CertExpiry>>({
     queryKey: ['secret-cert-expiry', namespaces],
     queryFn: () => fetchJSON(`/secrets/certificate-expiry${params}`),
@@ -233,7 +256,8 @@ export function useSecretCertExpiry(namespaces: string[] = [], enabled = true) {
 
 // CRD counts - loaded lazily after main dashboard
 export function useDashboardCRDs(namespaces: string[] = []) {
-  const params = namespaces.length > 0 ? `?namespaces=${namespaces.join(',')}` : ''
+  const params =
+    namespaces.length > 0 ? `?namespaces=${namespaces.join(',')}` : ''
   return useQuery<DashboardCRDsResponse>({
     queryKey: ['dashboard-crds', namespaces],
     queryFn: () => fetchJSON(`/dashboard/crds${params}`),
@@ -244,7 +268,8 @@ export function useDashboardCRDs(namespaces: string[] = []) {
 
 // Helm summary - loaded lazily after main dashboard (Helm SDK lists K8s secrets, ~2-3s)
 export function useDashboardHelm(namespaces: string[] = []) {
-  const params = namespaces.length > 0 ? `?namespaces=${namespaces.join(',')}` : ''
+  const params =
+    namespaces.length > 0 ? `?namespaces=${namespaces.join(',')}` : ''
   return useQuery<DashboardHelmSummary>({
     queryKey: ['dashboard-helm', namespaces],
     queryFn: () => fetchJSON(`/dashboard/helm${params}`),
@@ -263,13 +288,17 @@ export interface OpenCostNamespaceCost {
   cpuCost: number
   memoryCost: number
   storageCost?: number
+  gpuCost?: number
   cpuUsageCost?: number
   memoryUsageCost?: number
   efficiency?: number
   idleCost?: number
 }
 
-export type CostUnavailableReason = 'no_prometheus' | 'no_metrics' | 'query_error'
+export type CostUnavailableReason =
+  | 'no_prometheus'
+  | 'no_metrics'
+  | 'query_error'
 
 export interface OpenCostSummary {
   available: boolean
@@ -278,6 +307,7 @@ export interface OpenCostSummary {
   window?: string
   totalHourlyCost?: number
   totalStorageCost?: number
+  totalGpuCost?: number
   totalIdleCost?: number
   clusterEfficiency?: number
   namespaces?: OpenCostNamespaceCost[]
@@ -289,7 +319,7 @@ export function useOpenCostSummary() {
     queryFn: () => fetchJSON('/opencost/summary'),
     refetchInterval: 60000, // Refresh every minute
     staleTime: 30000,
-    placeholderData: (prev) => prev, // Keep previous data visible during refetch
+    placeholderData: prev => prev, // Keep previous data visible during refetch
   })
 }
 
@@ -300,6 +330,8 @@ export interface OpenCostWorkloadCost {
   hourlyCost: number
   cpuCost: number
   memoryCost: number
+  storageCost?: number
+  gpuCost?: number
   replicas: number
   cpuUsageCost?: number
   memoryUsageCost?: number
@@ -314,10 +346,16 @@ export interface OpenCostWorkloadResponse {
   workloads: OpenCostWorkloadCost[]
 }
 
-export function useOpenCostWorkloads(namespace: string, options?: { enabled?: boolean }) {
+export function useOpenCostWorkloads(
+  namespace: string,
+  options?: { enabled?: boolean }
+) {
   return useQuery<OpenCostWorkloadResponse>({
     queryKey: ['opencost-workloads', namespace],
-    queryFn: () => fetchJSON(`/opencost/workloads?namespace=${encodeURIComponent(namespace)}`),
+    queryFn: () =>
+      fetchJSON(
+        `/opencost/workloads?namespace=${encodeURIComponent(namespace)}`
+      ),
     enabled: (options?.enabled ?? true) && Boolean(namespace),
     staleTime: 30000,
   })
@@ -349,7 +387,7 @@ export function useOpenCostTrend(range_: CostTimeRange = '24h') {
     queryFn: () => fetchJSON(`/opencost/trend?range=${range_}`),
     staleTime: 60000,
     refetchInterval: 120000, // Refresh every 2 minutes
-    placeholderData: (prev) => prev,
+    placeholderData: prev => prev,
   })
 }
 
@@ -361,6 +399,8 @@ export interface OpenCostNodeCost {
   hourlyCost: number
   cpuCost: number
   memoryCost: number
+  gpuCost?: number
+  gpuCount?: number
 }
 
 export interface OpenCostNodeResponse {
@@ -375,7 +415,7 @@ export function useOpenCostNodes() {
     queryFn: () => fetchJSON('/opencost/nodes'),
     staleTime: 60000,
     refetchInterval: 120000,
-    placeholderData: (prev) => prev,
+    placeholderData: prev => prev,
   })
 }
 
@@ -386,7 +426,7 @@ export function useClusterInfo() {
     queryFn: () => fetchJSON('/cluster-info'),
     staleTime: 60000, // 1 minute
     // Poll faster when CRD discovery is in progress
-    refetchInterval: (query) => {
+    refetchInterval: query => {
       const status = query.state.data?.crdDiscoveryStatus
       return status === 'discovering' ? 2000 : false
     },
@@ -421,7 +461,12 @@ export function useVersionCheck() {
 // Desktop Update API hooks
 // ============================================================================
 
-export type DesktopUpdateState = 'idle' | 'downloading' | 'ready' | 'applying' | 'error'
+export type DesktopUpdateState =
+  | 'idle'
+  | 'downloading'
+  | 'ready'
+  | 'applying'
+  | 'error'
 
 export interface DesktopUpdateStatus {
   state: DesktopUpdateState
@@ -437,7 +482,9 @@ export function useStartDesktopUpdate() {
         method: 'POST',
       })
       if (!response.ok) {
-        const error = await response.json().catch(() => ({ error: 'Unknown error' }))
+        const error = await response
+          .json()
+          .catch(() => ({ error: 'Unknown error' }))
         throw new Error(error.error || `HTTP ${response.status}`)
       }
       return response.json()
@@ -465,7 +512,9 @@ export function useApplyDesktopUpdate() {
         method: 'POST',
       })
       if (!response.ok) {
-        const error = await response.json().catch(() => ({ error: 'Unknown error' }))
+        const error = await response
+          .json()
+          .catch(() => ({ error: 'Unknown error' }))
         throw new Error(error.error || `HTTP ${response.status}`)
       }
       return response.json()
@@ -523,7 +572,11 @@ export function useNamespaces() {
 }
 
 // Topology (for manual refresh)
-export function useTopology(namespaces: string[], viewMode: string = 'resources', options?: { enabled?: boolean }) {
+export function useTopology(
+  namespaces: string[],
+  viewMode: string = 'resources',
+  options?: { enabled?: boolean }
+) {
   const params = new URLSearchParams()
   if (namespaces.length > 0) params.set('namespaces', namespaces.join(','))
   if (viewMode) params.set('view', viewMode)
@@ -531,7 +584,8 @@ export function useTopology(namespaces: string[], viewMode: string = 'resources'
 
   return useQuery<Topology>({
     queryKey: ['topology', namespaces, viewMode],
-    queryFn: () => fetchJSON(`/topology${queryString ? `?${queryString}` : ''}`),
+    queryFn: () =>
+      fetchJSON(`/topology${queryString ? `?${queryString}` : ''}`),
     staleTime: 5000, // 5 seconds
     enabled: options?.enabled !== false,
   })
@@ -539,7 +593,12 @@ export function useTopology(namespaces: string[], viewMode: string = 'resources'
 
 // Generic resource fetching - returns resource with relationships
 // Uses '_' as placeholder for cluster-scoped resources (empty namespace)
-export function useResource<T>(kind: string, namespace: string, name: string, group?: string) {
+export function useResource<T>(
+  kind: string,
+  namespace: string,
+  name: string,
+  group?: string
+) {
   // For cluster-scoped resources, use '_' as namespace placeholder
   const ns = namespace || '_'
   const params = new URLSearchParams()
@@ -548,8 +607,11 @@ export function useResource<T>(kind: string, namespace: string, name: string, gr
 
   const query = useQuery<ResourceWithRelationships<T>>({
     queryKey: ['resource', kind, namespace, name, group],
-    queryFn: () => fetchJSON(`/resources/${kind}/${ns}/${name}${queryString ? `?${queryString}` : ''}`),
-    enabled: Boolean(kind && name),  // namespace can be empty for cluster-scoped resources
+    queryFn: () =>
+      fetchJSON(
+        `/resources/${kind}/${ns}/${name}${queryString ? `?${queryString}` : ''}`
+      ),
+    enabled: Boolean(kind && name), // namespace can be empty for cluster-scoped resources
   })
 
   // Extract resource and relationships from the response
@@ -562,7 +624,12 @@ export function useResource<T>(kind: string, namespace: string, name: string, gr
 }
 
 // Hook that returns full response with relationships explicitly
-export function useResourceWithRelationships<T>(kind: string, namespace: string, name: string, group?: string) {
+export function useResourceWithRelationships<T>(
+  kind: string,
+  namespace: string,
+  name: string,
+  group?: string
+) {
   const ns = namespace || '_'
   const params = new URLSearchParams()
   if (group) params.set('group', group)
@@ -570,13 +637,20 @@ export function useResourceWithRelationships<T>(kind: string, namespace: string,
 
   return useQuery<ResourceWithRelationships<T>>({
     queryKey: ['resource', kind, namespace, name, group],
-    queryFn: () => fetchJSON(`/resources/${kind}/${ns}/${name}${queryString ? `?${queryString}` : ''}`),
+    queryFn: () =>
+      fetchJSON(
+        `/resources/${kind}/${ns}/${name}${queryString ? `?${queryString}` : ''}`
+      ),
     enabled: Boolean(kind && name),
   })
 }
 
 // List resources - queryKey includes group for cache sharing with ResourcesView
-export function useResources<T>(kind: string, namespace?: string, group?: string) {
+export function useResources<T>(
+  kind: string,
+  namespace?: string,
+  group?: string
+) {
   const params = new URLSearchParams()
   if (namespace) params.set('namespace', namespace)
   if (group) params.set('group', group)
@@ -584,7 +658,8 @@ export function useResources<T>(kind: string, namespace?: string, group?: string
 
   return useQuery<T[]>({
     queryKey: ['resources', kind, group, namespace],
-    queryFn: () => fetchJSON(`/resources/${kind}${queryString ? `?${queryString}` : ''}`),
+    queryFn: () =>
+      fetchJSON(`/resources/${kind}${queryString ? `?${queryString}` : ''}`),
     staleTime: 30000, // 30 seconds - matches refetchInterval in ResourcesView
   })
 }
@@ -621,7 +696,16 @@ function getTimeRangeDate(range: TimeRange): Date | null {
 }
 
 export function useChanges(options: UseChangesOptions = {}) {
-  const { namespaces = [], kind, timeRange = '1h', filter = 'all', includeK8sEvents = true, includeManaged = false, limit = 200, enabled = true } = options
+  const {
+    namespaces = [],
+    kind,
+    timeRange = '1h',
+    filter = 'all',
+    includeK8sEvents = true,
+    includeManaged = false,
+    limit = 200,
+    enabled = true,
+  } = options
 
   const params = new URLSearchParams()
   if (namespaces.length > 0) params.set('namespaces', namespaces.join(','))
@@ -639,7 +723,16 @@ export function useChanges(options: UseChangesOptions = {}) {
   const queryString = params.toString()
 
   return useQuery<TimelineEvent[]>({
-    queryKey: ['changes', namespaces, kind, timeRange, filter, includeK8sEvents, includeManaged, limit],
+    queryKey: [
+      'changes',
+      namespaces,
+      kind,
+      timeRange,
+      filter,
+      includeK8sEvents,
+      includeManaged,
+      limit,
+    ],
     queryFn: () => fetchJSON(`/changes${queryString ? `?${queryString}` : ''}`),
     staleTime: 5000, // Consider data stale after 5 seconds to ensure fresh data on navigation
     refetchInterval: 60000, // SSE handles real-time updates; this is a fallback
@@ -648,7 +741,12 @@ export function useChanges(options: UseChangesOptions = {}) {
 }
 
 // Children changes for a parent workload (e.g., ReplicaSets and Pods under a Deployment)
-export function useResourceChildren(kind: string, namespace: string, name: string, timeRange: TimeRange = '1h') {
+export function useResourceChildren(
+  kind: string,
+  namespace: string,
+  name: string,
+  timeRange: TimeRange = '1h'
+) {
   const sinceDate = getTimeRangeDate(timeRange)
   const params = new URLSearchParams()
   if (sinceDate) {
@@ -657,14 +755,21 @@ export function useResourceChildren(kind: string, namespace: string, name: strin
 
   return useQuery<TimelineEvent[]>({
     queryKey: ['resource-children', kind, namespace, name, timeRange],
-    queryFn: () => fetchJSON(`/changes/${kind}/${namespace}/${name}/children?${params.toString()}`),
+    queryFn: () =>
+      fetchJSON(
+        `/changes/${kind}/${namespace}/${name}/children?${params.toString()}`
+      ),
     enabled: Boolean(kind && namespace && name),
     refetchInterval: 15000, // Refresh every 15 seconds
   })
 }
 
 // Resource-specific events (filtered by resource name)
-export function useResourceEvents(kind: string, namespace: string, name: string) {
+export function useResourceEvents(
+  kind: string,
+  namespace: string,
+  name: string
+) {
   const params = new URLSearchParams()
   params.set('namespace', namespace)
   params.set('kind', kind)
@@ -677,7 +782,9 @@ export function useResourceEvents(kind: string, namespace: string, name: string)
   return useQuery<TimelineEvent[]>({
     queryKey: ['resource-events', kind, namespace, name],
     queryFn: async () => {
-      const events = await fetchJSON<TimelineEvent[]>(`/changes?${params.toString()}`)
+      const events = await fetchJSON<TimelineEvent[]>(
+        `/changes?${params.toString()}`
+      )
       // Filter to only events for this specific resource
       return events.filter(e => e.name === name)
     },
@@ -693,8 +800,8 @@ export function useResourceEvents(kind: string, namespace: string, name: string)
 export interface ContainerMetrics {
   name: string
   usage: {
-    cpu: string      // e.g., "10m" (millicores)
-    memory: string   // e.g., "128Mi"
+    cpu: string // e.g., "10m" (millicores)
+    memory: string // e.g., "128Mi"
   }
 }
 
@@ -750,8 +857,8 @@ export function useNodeMetrics(nodeName: string) {
 
 export interface MetricsDataPoint {
   timestamp: string
-  cpu: number      // CPU in nanocores
-  memory: number   // Memory in bytes
+  cpu: number // CPU in nanocores
+  memory: number // Memory in bytes
 }
 
 export interface ContainerMetricsHistory {
@@ -798,20 +905,20 @@ export function useNodeMetricsHistory(nodeName: string) {
 export interface TopPodMetrics {
   namespace: string
   name: string
-  cpu: number           // nanocores (usage)
-  memory: number        // bytes (usage)
-  cpuRequest: number    // nanocores (sum across containers)
-  cpuLimit: number      // nanocores (sum across containers)
+  cpu: number // nanocores (usage)
+  memory: number // bytes (usage)
+  cpuRequest: number // nanocores (sum across containers)
+  cpuLimit: number // nanocores (sum across containers)
   memoryRequest: number // bytes (sum across containers)
-  memoryLimit: number   // bytes (sum across containers)
+  memoryLimit: number // bytes (sum across containers)
 }
 
 export interface TopNodeMetrics {
   name: string
-  cpu: number              // nanocores (usage)
-  memory: number           // bytes (usage)
-  podCount: number         // pods scheduled on this node
-  cpuAllocatable: number   // nanocores
+  cpu: number // nanocores (usage)
+  memory: number // bytes (usage)
+  podCount: number // pods scheduled on this node
+  cpuAllocatable: number // nanocores
   memoryAllocatable: number // bytes
 }
 
@@ -880,8 +987,23 @@ export interface PrometheusResourceMetrics {
   query?: string // PromQL query (included when result is empty, for diagnostics)
 }
 
-export type PrometheusMetricCategory = 'cpu' | 'memory' | 'network_rx' | 'network_tx' | 'filesystem'
-export type PrometheusTimeRange = '10m' | '30m' | '1h' | '3h' | '6h' | '12h' | '24h' | '48h' | '7d' | '14d'
+export type PrometheusMetricCategory =
+  | 'cpu'
+  | 'memory'
+  | 'network_rx'
+  | 'network_tx'
+  | 'filesystem'
+export type PrometheusTimeRange =
+  | '10m'
+  | '30m'
+  | '1h'
+  | '3h'
+  | '6h'
+  | '12h'
+  | '24h'
+  | '48h'
+  | '7d'
+  | '14d'
 
 // Check Prometheus availability
 export function usePrometheusStatus() {
@@ -898,7 +1020,9 @@ export function usePrometheusConnect() {
   const queryClient = useQueryClient()
   return useMutation({
     mutationFn: async () => {
-      const resp = await fetch(`${API_BASE}/prometheus/connect`, { method: 'POST' })
+      const resp = await fetch(`${API_BASE}/prometheus/connect`, {
+        method: 'POST',
+      })
       if (!resp.ok) {
         const body = await resp.json().catch(() => ({ error: 'Unknown error' }))
         throw new Error(body.error || `HTTP ${resp.status}`)
@@ -922,15 +1046,22 @@ export function usePrometheusResourceMetrics(
   name: string,
   category: PrometheusMetricCategory = 'cpu',
   range: PrometheusTimeRange = '1h',
-  enabled = true,
+  enabled = true
 ) {
   return useQuery<PrometheusResourceMetrics>({
-    queryKey: ['prometheus-resource-metrics', kind, namespace, name, category, range],
+    queryKey: [
+      'prometheus-resource-metrics',
+      kind,
+      namespace,
+      name,
+      category,
+      range,
+    ],
     queryFn: () =>
       fetchJSON(
         namespace
           ? `/prometheus/resources/${kind}/${namespace}/${name}?category=${category}&range=${range}`
-          : `/prometheus/resources/${kind}/${name}?category=${category}&range=${range}`,
+          : `/prometheus/resources/${kind}/${name}?category=${category}&range=${range}`
       ),
     enabled,
     staleTime: 30000,
@@ -943,12 +1074,14 @@ export function usePrometheusNamespaceMetrics(
   namespace: string,
   category: PrometheusMetricCategory = 'cpu',
   range: PrometheusTimeRange = '1h',
-  enabled = true,
+  enabled = true
 ) {
   return useQuery<PrometheusResourceMetrics>({
     queryKey: ['prometheus-namespace-metrics', namespace, category, range],
     queryFn: () =>
-      fetchJSON(`/prometheus/namespace/${namespace}?category=${category}&range=${range}`),
+      fetchJSON(
+        `/prometheus/namespace/${namespace}?category=${category}&range=${range}`
+      ),
     enabled,
     staleTime: 30000,
     refetchInterval: 60000,
@@ -959,7 +1092,7 @@ export function usePrometheusNamespaceMetrics(
 export function usePrometheusClusterMetrics(
   category: PrometheusMetricCategory = 'cpu',
   range: PrometheusTimeRange = '1h',
-  enabled = true,
+  enabled = true
 ) {
   return useQuery<PrometheusResourceMetrics>({
     queryKey: ['prometheus-cluster-metrics', category, range],
@@ -997,22 +1130,38 @@ export interface LogStreamEvent {
 }
 
 // Fetch pod logs (non-streaming)
-export function usePodLogs(namespace: string, podName: string, options?: {
-  container?: string
-  tailLines?: number
-  previous?: boolean
-  sinceSeconds?: number
-}) {
+export function usePodLogs(
+  namespace: string,
+  podName: string,
+  options?: {
+    container?: string
+    tailLines?: number
+    previous?: boolean
+    sinceSeconds?: number
+  }
+) {
   const params = new URLSearchParams()
   if (options?.container) params.set('container', options.container)
   if (options?.tailLines) params.set('tailLines', String(options.tailLines))
   if (options?.previous) params.set('previous', 'true')
-  if (options?.sinceSeconds) params.set('sinceSeconds', String(options.sinceSeconds))
+  if (options?.sinceSeconds)
+    params.set('sinceSeconds', String(options.sinceSeconds))
   const queryString = params.toString()
 
   return useQuery<LogsResponse>({
-    queryKey: ['pod-logs', namespace, podName, options?.container, options?.tailLines, options?.previous, options?.sinceSeconds],
-    queryFn: () => fetchJSON(`/pods/${namespace}/${podName}/logs${queryString ? `?${queryString}` : ''}`),
+    queryKey: [
+      'pod-logs',
+      namespace,
+      podName,
+      options?.container,
+      options?.tailLines,
+      options?.previous,
+      options?.sinceSeconds,
+    ],
+    queryFn: () =>
+      fetchJSON(
+        `/pods/${namespace}/${podName}/logs${queryString ? `?${queryString}` : ''}`
+      ),
     enabled: Boolean(namespace && podName),
     staleTime: 5000, // Allow refetch after 5 seconds
   })
@@ -1033,10 +1182,13 @@ export function createLogStream(
   if (options?.container) params.set('container', options.container)
   if (options?.tailLines) params.set('tailLines', String(options.tailLines))
   if (options?.previous) params.set('previous', 'true')
-  if (options?.sinceSeconds) params.set('sinceSeconds', String(options.sinceSeconds))
+  if (options?.sinceSeconds)
+    params.set('sinceSeconds', String(options.sinceSeconds))
   const queryString = params.toString()
 
-  return new EventSource(`${API_BASE}/pods/${namespace}/${podName}/logs/stream${queryString ? `?${queryString}` : ''}`)
+  return new EventSource(
+    `${API_BASE}/pods/${namespace}/${podName}/logs/stream${queryString ? `?${queryString}` : ''}`
+  )
 }
 
 // ============================================================================
@@ -1050,10 +1202,15 @@ export interface AvailablePort {
   name?: string
 }
 
-export function useAvailablePorts(type: 'pod' | 'service', namespace: string, name: string) {
+export function useAvailablePorts(
+  type: 'pod' | 'service',
+  namespace: string,
+  name: string
+) {
   return useQuery<{ ports: AvailablePort[] }>({
     queryKey: ['available-ports', type, namespace, name],
-    queryFn: () => fetchJSON(`/portforwards/available/${type}/${namespace}/${name}`),
+    queryFn: () =>
+      fetchJSON(`/portforwards/available/${type}/${namespace}/${name}`),
     enabled: Boolean(namespace && name),
     staleTime: 30000,
   })
@@ -1068,14 +1225,29 @@ export function useUpdateResource() {
   const queryClient = useQueryClient()
 
   return useMutation({
-    mutationFn: async ({ kind, namespace, name, yaml }: { kind: string; namespace: string; name: string; yaml: string }) => {
-      const response = await fetch(`${API_BASE}/resources/${kind}/${namespace}/${name}`, {
-        method: 'PUT',
-        headers: { 'Content-Type': 'text/plain' },
-        body: yaml,
-      })
+    mutationFn: async ({
+      kind,
+      namespace,
+      name,
+      yaml,
+    }: {
+      kind: string
+      namespace: string
+      name: string
+      yaml: string
+    }) => {
+      const response = await fetch(
+        `${API_BASE}/resources/${kind}/${namespace}/${name}`,
+        {
+          method: 'PUT',
+          headers: { 'Content-Type': 'text/plain' },
+          body: yaml,
+        }
+      )
       if (!response.ok) {
-        const error = await response.json().catch(() => ({ error: 'Unknown error' }))
+        const error = await response
+          .json()
+          .catch(() => ({ error: 'Unknown error' }))
         throw new Error(error.error || `HTTP ${response.status}`)
       }
       return response.json()
@@ -1085,8 +1257,17 @@ export function useUpdateResource() {
       successMessage: 'Resource updated',
     },
     onSuccess: (_, variables) => {
-      queryClient.invalidateQueries({ queryKey: ['resource', variables.kind, variables.namespace, variables.name] })
-      queryClient.invalidateQueries({ queryKey: ['resources', variables.kind] })
+      queryClient.invalidateQueries({
+        queryKey: [
+          'resource',
+          variables.kind,
+          variables.namespace,
+          variables.name,
+        ],
+      })
+      queryClient.invalidateQueries({
+        queryKey: ['resources', variables.kind],
+      })
       queryClient.invalidateQueries({ queryKey: ['topology'] })
     },
   })
@@ -1097,8 +1278,21 @@ export function useDeleteResource() {
   const queryClient = useQueryClient()
 
   return useMutation({
-    mutationFn: async ({ kind, namespace, name, force }: { kind: string; namespace: string; name: string; force?: boolean }) => {
-      const url = new URL(`${API_BASE}/resources/${kind}/${namespace}/${name}`, window.location.origin)
+    mutationFn: async ({
+      kind,
+      namespace,
+      name,
+      force,
+    }: {
+      kind: string
+      namespace: string
+      name: string
+      force?: boolean
+    }) => {
+      const url = new URL(
+        `${API_BASE}/resources/${kind}/${namespace}/${name}`,
+        window.location.origin
+      )
       if (force) {
         url.searchParams.set('force', 'true')
       }
@@ -1106,7 +1300,9 @@ export function useDeleteResource() {
         method: 'DELETE',
       })
       if (!response.ok) {
-        const error = await response.json().catch(() => ({ error: 'Unknown error' }))
+        const error = await response
+          .json()
+          .catch(() => ({ error: 'Unknown error' }))
         throw new Error(error.error || `HTTP ${response.status}`)
       }
       // DELETE returns 204 No Content, no body to parse
@@ -1117,7 +1313,9 @@ export function useDeleteResource() {
       successMessage: 'Resource deleted',
     },
     onSuccess: (_, variables) => {
-      queryClient.invalidateQueries({ queryKey: ['resources', variables.kind] })
+      queryClient.invalidateQueries({
+        queryKey: ['resources', variables.kind],
+      })
       queryClient.invalidateQueries({ queryKey: ['topology'] })
     },
   })
@@ -1132,12 +1330,23 @@ export function useTriggerCronJob() {
   const queryClient = useQueryClient()
 
   return useMutation({
-    mutationFn: async ({ namespace, name }: { namespace: string; name: string }) => {
-      const response = await fetch(`${API_BASE}/cronjobs/${namespace}/${name}/trigger`, {
-        method: 'POST',
-      })
+    mutationFn: async ({
+      namespace,
+      name,
+    }: {
+      namespace: string
+      name: string
+    }) => {
+      const response = await fetch(
+        `${API_BASE}/cronjobs/${namespace}/${name}/trigger`,
+        {
+          method: 'POST',
+        }
+      )
       if (!response.ok) {
-        const error = await response.json().catch(() => ({ error: 'Unknown error' }))
+        const error = await response
+          .json()
+          .catch(() => ({ error: 'Unknown error' }))
         throw new Error(error.error || `HTTP ${response.status}`)
       }
       return response.json()
@@ -1159,12 +1368,23 @@ export function useSuspendCronJob() {
   const queryClient = useQueryClient()
 
   return useMutation({
-    mutationFn: async ({ namespace, name }: { namespace: string; name: string }) => {
-      const response = await fetch(`${API_BASE}/cronjobs/${namespace}/${name}/suspend`, {
-        method: 'POST',
-      })
+    mutationFn: async ({
+      namespace,
+      name,
+    }: {
+      namespace: string
+      name: string
+    }) => {
+      const response = await fetch(
+        `${API_BASE}/cronjobs/${namespace}/${name}/suspend`,
+        {
+          method: 'POST',
+        }
+      )
       if (!response.ok) {
-        const error = await response.json().catch(() => ({ error: 'Unknown error' }))
+        const error = await response
+          .json()
+          .catch(() => ({ error: 'Unknown error' }))
         throw new Error(error.error || `HTTP ${response.status}`)
       }
       return response.json()
@@ -1185,12 +1405,23 @@ export function useResumeCronJob() {
   const queryClient = useQueryClient()
 
   return useMutation({
-    mutationFn: async ({ namespace, name }: { namespace: string; name: string }) => {
-      const response = await fetch(`${API_BASE}/cronjobs/${namespace}/${name}/resume`, {
-        method: 'POST',
-      })
+    mutationFn: async ({
+      namespace,
+      name,
+    }: {
+      namespace: string
+      name: string
+    }) => {
+      const response = await fetch(
+        `${API_BASE}/cronjobs/${namespace}/${name}/resume`,
+        {
+          method: 'POST',
+        }
+      )
       if (!response.ok) {
-        const error = await response.json().catch(() => ({ error: 'Unknown error' }))
+        const error = await response
+          .json()
+          .catch(() => ({ error: 'Unknown error' }))
         throw new Error(error.error || `HTTP ${response.status}`)
       }
       return response.json()
@@ -1215,12 +1446,25 @@ export function useRestartWorkload() {
   const queryClient = useQueryClient()
 
   return useMutation({
-    mutationFn: async ({ kind, namespace, name }: { kind: string; namespace: string; name: string }) => {
-      const response = await fetch(`${API_BASE}/workloads/${kind}/${namespace}/${name}/restart`, {
-        method: 'POST',
-      })
+    mutationFn: async ({
+      kind,
+      namespace,
+      name,
+    }: {
+      kind: string
+      namespace: string
+      name: string
+    }) => {
+      const response = await fetch(
+        `${API_BASE}/workloads/${kind}/${namespace}/${name}/restart`,
+        {
+          method: 'POST',
+        }
+      )
       if (!response.ok) {
-        const error = await response.json().catch(() => ({ error: 'Unknown error' }))
+        const error = await response
+          .json()
+          .catch(() => ({ error: 'Unknown error' }))
         throw new Error(error.error || `HTTP ${response.status}`)
       }
       return response.json()
@@ -1230,7 +1474,9 @@ export function useRestartWorkload() {
       successMessage: 'Workload restarting',
     },
     onSuccess: (_, variables) => {
-      queryClient.invalidateQueries({ queryKey: ['resources', variables.kind] })
+      queryClient.invalidateQueries({
+        queryKey: ['resources', variables.kind],
+      })
       queryClient.invalidateQueries({ queryKey: ['topology'] })
     },
   })
@@ -1241,14 +1487,29 @@ export function useScaleWorkload() {
   const queryClient = useQueryClient()
 
   return useMutation({
-    mutationFn: async ({ kind, namespace, name, replicas }: { kind: string; namespace: string; name: string; replicas: number }) => {
-      const response = await fetch(`${API_BASE}/workloads/${kind}/${namespace}/${name}/scale`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ replicas }),
-      })
+    mutationFn: async ({
+      kind,
+      namespace,
+      name,
+      replicas,
+    }: {
+      kind: string
+      namespace: string
+      name: string
+      replicas: number
+    }) => {
+      const response = await fetch(
+        `${API_BASE}/workloads/${kind}/${namespace}/${name}/scale`,
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ replicas }),
+        }
+      )
       if (!response.ok) {
-        const error = await response.json().catch(() => ({ error: 'Unknown error' }))
+        const error = await response
+          .json()
+          .catch(() => ({ error: 'Unknown error' }))
         throw new Error(error.error || `HTTP ${response.status}`)
       }
       return response.json()
@@ -1258,8 +1519,17 @@ export function useScaleWorkload() {
       successMessage: 'Workload scaled',
     },
     onSuccess: (_, variables) => {
-      queryClient.invalidateQueries({ queryKey: ['resources', variables.kind] })
-      queryClient.invalidateQueries({ queryKey: ['resource', variables.kind, variables.namespace, variables.name] })
+      queryClient.invalidateQueries({
+        queryKey: ['resources', variables.kind],
+      })
+      queryClient.invalidateQueries({
+        queryKey: [
+          'resource',
+          variables.kind,
+          variables.namespace,
+          variables.name,
+        ],
+      })
       queryClient.invalidateQueries({ queryKey: ['topology'] })
     },
   })
@@ -1279,10 +1549,16 @@ export interface WorkloadRevision {
   template?: string // Pod template spec as YAML (for revision diff)
 }
 
-export function useWorkloadRevisions(kind: string, namespace: string, name: string, enabled = true) {
+export function useWorkloadRevisions(
+  kind: string,
+  namespace: string,
+  name: string,
+  enabled = true
+) {
   return useQuery<WorkloadRevision[]>({
     queryKey: ['workload-revisions', kind, namespace, name],
-    queryFn: () => fetchJSON(`/workloads/${kind}/${namespace}/${name}/revisions`),
+    queryFn: () =>
+      fetchJSON(`/workloads/${kind}/${namespace}/${name}/revisions`),
     enabled: Boolean(kind && namespace && name && enabled),
   })
 }
@@ -1290,14 +1566,29 @@ export function useWorkloadRevisions(kind: string, namespace: string, name: stri
 export function useRollbackWorkload() {
   const queryClient = useQueryClient()
   return useMutation({
-    mutationFn: async ({ kind, namespace, name, revision }: { kind: string; namespace: string; name: string; revision: number }) => {
-      const response = await fetch(`${API_BASE}/workloads/${kind}/${namespace}/${name}/rollback`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ revision }),
-      })
+    mutationFn: async ({
+      kind,
+      namespace,
+      name,
+      revision,
+    }: {
+      kind: string
+      namespace: string
+      name: string
+      revision: number
+    }) => {
+      const response = await fetch(
+        `${API_BASE}/workloads/${kind}/${namespace}/${name}/rollback`,
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ revision }),
+        }
+      )
       if (!response.ok) {
-        const error = await response.json().catch(() => ({ error: 'Unknown error' }))
+        const error = await response
+          .json()
+          .catch(() => ({ error: 'Unknown error' }))
         throw new Error(error.error || `HTTP ${response.status}`)
       }
       return response.json()
@@ -1307,9 +1598,25 @@ export function useRollbackWorkload() {
       successMessage: 'Rollback initiated',
     },
     onSuccess: (_, variables) => {
-      queryClient.invalidateQueries({ queryKey: ['resources', variables.kind] })
-      queryClient.invalidateQueries({ queryKey: ['resource', variables.kind, variables.namespace, variables.name] })
-      queryClient.invalidateQueries({ queryKey: ['workload-revisions', variables.kind, variables.namespace, variables.name] })
+      queryClient.invalidateQueries({
+        queryKey: ['resources', variables.kind],
+      })
+      queryClient.invalidateQueries({
+        queryKey: [
+          'resource',
+          variables.kind,
+          variables.namespace,
+          variables.name,
+        ],
+      })
+      queryClient.invalidateQueries({
+        queryKey: [
+          'workload-revisions',
+          variables.kind,
+          variables.namespace,
+          variables.name,
+        ],
+      })
       queryClient.invalidateQueries({ queryKey: ['topology'] })
     },
   })
@@ -1341,14 +1648,22 @@ export function useHelmRelease(namespace: string, name: string) {
 }
 
 // Get manifest for a Helm release (optionally at a specific revision)
-export function useHelmManifest(namespace: string, name: string, revision?: number) {
+export function useHelmManifest(
+  namespace: string,
+  name: string,
+  revision?: number
+) {
   const params = revision ? `?revision=${revision}` : ''
   return useQuery<string>({
     queryKey: ['helm-manifest', namespace, name, revision],
     queryFn: async () => {
-      const response = await fetch(`${API_BASE}/helm/releases/${namespace}/${name}/manifest${params}`)
+      const response = await fetch(
+        `${API_BASE}/helm/releases/${namespace}/${name}/manifest${params}`
+      )
       if (!response.ok) {
-        const error = await response.json().catch(() => ({ error: 'Unknown error' }))
+        const error = await response
+          .json()
+          .catch(() => ({ error: 'Unknown error' }))
         throw new Error(error.error || `HTTP ${response.status}`)
       }
       return response.text()
@@ -1359,11 +1674,16 @@ export function useHelmManifest(namespace: string, name: string, revision?: numb
 }
 
 // Get values for a Helm release
-export function useHelmValues(namespace: string, name: string, allValues?: boolean) {
+export function useHelmValues(
+  namespace: string,
+  name: string,
+  allValues?: boolean
+) {
   const params = allValues ? '?all=true' : ''
   return useQuery<HelmValues>({
     queryKey: ['helm-values', namespace, name, allValues],
-    queryFn: () => fetchJSON(`/helm/releases/${namespace}/${name}/values${params}`),
+    queryFn: () =>
+      fetchJSON(`/helm/releases/${namespace}/${name}/values${params}`),
     enabled: Boolean(namespace && name),
     staleTime: 60000,
   })
@@ -1379,17 +1699,30 @@ export function useHelmManifestDiff(
   return useQuery<ManifestDiff>({
     queryKey: ['helm-diff', namespace, name, revision1, revision2],
     queryFn: () =>
-      fetchJSON(`/helm/releases/${namespace}/${name}/diff?revision1=${revision1}&revision2=${revision2}`),
-    enabled: Boolean(namespace && name && revision1 > 0 && revision2 > 0 && revision1 !== revision2),
+      fetchJSON(
+        `/helm/releases/${namespace}/${name}/diff?revision1=${revision1}&revision2=${revision2}`
+      ),
+    enabled: Boolean(
+      namespace &&
+      name &&
+      revision1 > 0 &&
+      revision2 > 0 &&
+      revision1 !== revision2
+    ),
     staleTime: 60000,
   })
 }
 
 // Check for upgrade availability (lazy - called when drawer opens)
-export function useHelmUpgradeInfo(namespace: string, name: string, enabled = true) {
+export function useHelmUpgradeInfo(
+  namespace: string,
+  name: string,
+  enabled = true
+) {
   return useQuery<UpgradeInfo>({
     queryKey: ['helm-upgrade-info', namespace, name],
-    queryFn: () => fetchJSON(`/helm/releases/${namespace}/${name}/upgrade-info`),
+    queryFn: () =>
+      fetchJSON(`/helm/releases/${namespace}/${name}/upgrade-info`),
     enabled: Boolean(namespace && name && enabled),
     staleTime: 30000, // 30 seconds - keep in sync with release list
     retry: false, // Don't retry on failure - repo might not be configured
@@ -1417,12 +1750,23 @@ export function useHelmUninstall() {
   const queryClient = useQueryClient()
 
   return useMutation({
-    mutationFn: async ({ namespace, name }: { namespace: string; name: string }) => {
-      const response = await fetch(`${API_BASE}/helm/releases/${namespace}/${name}`, {
-        method: 'DELETE',
-      })
+    mutationFn: async ({
+      namespace,
+      name,
+    }: {
+      namespace: string
+      name: string
+    }) => {
+      const response = await fetch(
+        `${API_BASE}/helm/releases/${namespace}/${name}`,
+        {
+          method: 'DELETE',
+        }
+      )
       if (!response.ok) {
-        const error = await response.json().catch(() => ({ error: 'Unknown error' }))
+        const error = await response
+          .json()
+          .catch(() => ({ error: 'Unknown error' }))
         throw new Error(error.error || `HTTP ${response.status}`)
       }
       return response.json()
@@ -1444,13 +1788,15 @@ function streamHelmProgress(
   url: string,
   options: RequestInit,
   onProgress: (event: InstallProgressEvent) => void,
-  failureLabel: string,
+  failureLabel: string
 ): Promise<InstallProgressEvent> {
   return new Promise((resolve, reject) => {
     fetch(url, options)
-      .then(async (response) => {
+      .then(async response => {
         if (!response.ok) {
-          const error = await response.json().catch(() => ({ error: 'Unknown error' }))
+          const error = await response
+            .json()
+            .catch(() => ({ error: 'Unknown error' }))
           reject(new Error(error.error || `HTTP ${response.status}`))
           return
         }
@@ -1506,7 +1852,7 @@ export function upgradeWithProgress(
     `${API_BASE}/helm/releases/${namespace}/${name}/upgrade-stream?version=${encodeURIComponent(version)}`,
     { method: 'POST' },
     onProgress,
-    'Upgrade failed',
+    'Upgrade failed'
   ).then(() => {})
 }
 
@@ -1521,21 +1867,30 @@ export function rollbackWithProgress(
     `${API_BASE}/helm/releases/${namespace}/${name}/rollback-stream?revision=${revision}`,
     { method: 'POST' },
     onProgress,
-    'Rollback failed',
+    'Rollback failed'
   ).then(() => {})
 }
 
 // Preview values change (dry-run upgrade)
 export function useHelmPreviewValues() {
-  return useMutation<ValuesPreviewResponse, Error, { namespace: string; name: string; values: Record<string, unknown> }>({
+  return useMutation<
+    ValuesPreviewResponse,
+    Error,
+    { namespace: string; name: string; values: Record<string, unknown> }
+  >({
     mutationFn: async ({ namespace, name, values }) => {
-      const response = await fetch(`${API_BASE}/helm/releases/${namespace}/${name}/values/preview`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ values }),
-      })
+      const response = await fetch(
+        `${API_BASE}/helm/releases/${namespace}/${name}/values/preview`,
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ values }),
+        }
+      )
       if (!response.ok) {
-        const error = await response.json().catch(() => ({ error: 'Unknown error' }))
+        const error = await response
+          .json()
+          .catch(() => ({ error: 'Unknown error' }))
         throw new Error(error.error || `HTTP ${response.status}`)
       }
       return response.json()
@@ -1548,14 +1903,27 @@ export function useHelmApplyValues() {
   const queryClient = useQueryClient()
 
   return useMutation({
-    mutationFn: async ({ namespace, name, values }: { namespace: string; name: string; values: Record<string, unknown> }) => {
-      const response = await fetch(`${API_BASE}/helm/releases/${namespace}/${name}/values`, {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ values }),
-      })
+    mutationFn: async ({
+      namespace,
+      name,
+      values,
+    }: {
+      namespace: string
+      name: string
+      values: Record<string, unknown>
+    }) => {
+      const response = await fetch(
+        `${API_BASE}/helm/releases/${namespace}/${name}/values`,
+        {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ values }),
+        }
+      )
       if (!response.ok) {
-        const error = await response.json().catch(() => ({ error: 'Unknown error' }))
+        const error = await response
+          .json()
+          .catch(() => ({ error: 'Unknown error' }))
         throw new Error(error.error || `HTTP ${response.status}`)
       }
       return response.json()
@@ -1566,8 +1934,12 @@ export function useHelmApplyValues() {
     },
     onSuccess: (_, variables) => {
       queryClient.invalidateQueries({ queryKey: ['helm-releases'] })
-      queryClient.invalidateQueries({ queryKey: ['helm-release', variables.namespace, variables.name] })
-      queryClient.invalidateQueries({ queryKey: ['helm-values', variables.namespace, variables.name] })
+      queryClient.invalidateQueries({
+        queryKey: ['helm-release', variables.namespace, variables.name],
+      })
+      queryClient.invalidateQueries({
+        queryKey: ['helm-values', variables.namespace, variables.name],
+      })
     },
   })
 }
@@ -1590,11 +1962,16 @@ export function useUpdateRepository() {
 
   return useMutation({
     mutationFn: async (repoName: string) => {
-      const response = await fetch(`${API_BASE}/helm/repositories/${repoName}/update`, {
-        method: 'POST',
-      })
+      const response = await fetch(
+        `${API_BASE}/helm/repositories/${repoName}/update`,
+        {
+          method: 'POST',
+        }
+      )
       if (!response.ok) {
-        const error = await response.json().catch(() => ({ error: 'Unknown error' }))
+        const error = await response
+          .json()
+          .catch(() => ({ error: 'Unknown error' }))
         throw new Error(error.error || `HTTP ${response.status}`)
       }
       return response.json()
@@ -1611,7 +1988,11 @@ export function useUpdateRepository() {
 }
 
 // Search charts across all repositories
-export function useSearchCharts(query: string, allVersions = false, enabled = true) {
+export function useSearchCharts(
+  query: string,
+  allVersions = false,
+  enabled = true
+) {
   return useQuery<ChartSearchResult>({
     queryKey: ['helm-charts', query, allVersions],
     queryFn: () => {
@@ -1625,7 +2006,12 @@ export function useSearchCharts(query: string, allVersions = false, enabled = tr
 }
 
 // Get chart detail
-export function useChartDetail(repo: string, chart: string, version?: string, enabled = true) {
+export function useChartDetail(
+  repo: string,
+  chart: string,
+  version?: string,
+  enabled = true
+) {
   return useQuery<ChartDetail>({
     queryKey: ['helm-chart-detail', repo, chart, version],
     queryFn: () => {
@@ -1650,7 +2036,9 @@ export function useInstallChart() {
         body: JSON.stringify(req),
       })
       if (!response.ok) {
-        const error = await response.json().catch(() => ({ error: 'Unknown error' }))
+        const error = await response
+          .json()
+          .catch(() => ({ error: 'Unknown error' }))
         throw new Error(error.error || `HTTP ${response.status}`)
       }
       return response.json() as Promise<HelmRelease>
@@ -1681,10 +2069,14 @@ export function installChartWithProgress(
 ): Promise<HelmRelease> {
   return streamHelmProgress(
     `${API_BASE}/helm/releases/install-stream`,
-    { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(req) },
+    {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(req),
+    },
     onProgress,
-    'Install failed',
-  ).then((event) => event.release as HelmRelease)
+    'Install failed'
+  ).then(event => event.release as HelmRelease)
 }
 
 // ============================================================================
@@ -1697,7 +2089,13 @@ export type ArtifactHubSortOption = 'relevance' | 'stars' | 'last_updated'
 // Search charts on ArtifactHub
 export function useArtifactHubSearch(
   query: string,
-  options?: { offset?: number; limit?: number; official?: boolean; verified?: boolean; sort?: ArtifactHubSortOption },
+  options?: {
+    offset?: number
+    limit?: number
+    official?: boolean
+    verified?: boolean
+    sort?: ArtifactHubSortOption
+  },
   enabled = true
 ) {
   const params = new URLSearchParams()
@@ -1706,10 +2104,19 @@ export function useArtifactHubSearch(
   if (options?.limit) params.set('limit', String(options.limit))
   if (options?.official) params.set('official', 'true')
   if (options?.verified) params.set('verified', 'true')
-  if (options?.sort && options.sort !== 'relevance') params.set('sort', options.sort)
+  if (options?.sort && options.sort !== 'relevance')
+    params.set('sort', options.sort)
 
   return useQuery<ArtifactHubSearchResult>({
-    queryKey: ['artifacthub-search', query, options?.offset, options?.limit, options?.official, options?.verified, options?.sort],
+    queryKey: [
+      'artifacthub-search',
+      query,
+      options?.offset,
+      options?.limit,
+      options?.official,
+      options?.verified,
+      options?.sort,
+    ],
     queryFn: () => fetchJSON(`/helm/artifacthub/search?${params.toString()}`),
     enabled: enabled && query.length > 0,
     staleTime: 60000, // 1 minute
@@ -1717,7 +2124,12 @@ export function useArtifactHubSearch(
 }
 
 // Get chart detail from ArtifactHub
-export function useArtifactHubChart(repoName: string, chartName: string, version?: string, enabled = true) {
+export function useArtifactHubChart(
+  repoName: string,
+  chartName: string,
+  version?: string,
+  enabled = true
+) {
   const path = version
     ? `/helm/artifacthub/charts/${repoName}/${chartName}/${version}`
     : `/helm/artifacthub/charts/${repoName}/${chartName}`
@@ -1745,16 +2157,25 @@ interface GitOpsMutationConfig<TVariables> {
  * Factory function for creating GitOps mutation hooks with consistent patterns.
  * Handles fetch, error handling, meta messages, and query invalidation.
  */
-function createGitOpsMutation<TVariables>(config: GitOpsMutationConfig<TVariables>) {
+function createGitOpsMutation<TVariables>(
+  config: GitOpsMutationConfig<TVariables>
+) {
   return function useGitOpsMutation() {
     const queryClient = useQueryClient()
     return useMutation<GitOpsOperationResponse, Error, TVariables>({
-      mutationFn: async (variables: TVariables): Promise<GitOpsOperationResponse> => {
-        const response = await fetch(`${API_BASE}${config.getPath(variables)}`, {
-          method: 'POST',
-        })
+      mutationFn: async (
+        variables: TVariables
+      ): Promise<GitOpsOperationResponse> => {
+        const response = await fetch(
+          `${API_BASE}${config.getPath(variables)}`,
+          {
+            method: 'POST',
+          }
+        )
         if (!response.ok) {
-          const error = await response.json().catch(() => ({ error: 'Unknown error' }))
+          const error = await response
+            .json()
+            .catch(() => ({ error: 'Unknown error' }))
           throw new Error(error.error || `HTTP ${response.status}`)
         }
         return response.json() as Promise<GitOpsOperationResponse>
@@ -1764,9 +2185,9 @@ function createGitOpsMutation<TVariables>(config: GitOpsMutationConfig<TVariable
         successMessage: config.successMessage,
       },
       onSuccess: (_, variables) => {
-        config.getInvalidateKeys(variables).forEach(key =>
-          queryClient.invalidateQueries({ queryKey: key })
-        )
+        config
+          .getInvalidateKeys(variables)
+          .forEach(key => queryClient.invalidateQueries({ queryKey: key }))
       },
     })
   }
@@ -1791,31 +2212,31 @@ const argoInvalidateKeys = (v: ArgoAppVars) => [
 // ============================================================================
 
 export const useFluxReconcile = createGitOpsMutation<FluxResourceVars>({
-  getPath: (v) => `/flux/${v.kind}/${v.namespace}/${v.name}/reconcile`,
+  getPath: v => `/flux/${v.kind}/${v.namespace}/${v.name}/reconcile`,
   errorMessage: 'Failed to trigger reconciliation',
   successMessage: 'Reconciliation triggered',
   getInvalidateKeys: fluxInvalidateKeys,
 })
 
 export const useFluxSuspend = createGitOpsMutation<FluxResourceVars>({
-  getPath: (v) => `/flux/${v.kind}/${v.namespace}/${v.name}/suspend`,
+  getPath: v => `/flux/${v.kind}/${v.namespace}/${v.name}/suspend`,
   errorMessage: 'Failed to suspend resource',
   successMessage: 'Resource suspended',
   getInvalidateKeys: fluxInvalidateKeys,
 })
 
 export const useFluxResume = createGitOpsMutation<FluxResourceVars>({
-  getPath: (v) => `/flux/${v.kind}/${v.namespace}/${v.name}/resume`,
+  getPath: v => `/flux/${v.kind}/${v.namespace}/${v.name}/resume`,
   errorMessage: 'Failed to resume resource',
   successMessage: 'Resource resumed',
   getInvalidateKeys: fluxInvalidateKeys,
 })
 
 export const useFluxSyncWithSource = createGitOpsMutation<FluxResourceVars>({
-  getPath: (v) => `/flux/${v.kind}/${v.namespace}/${v.name}/sync-with-source`,
+  getPath: v => `/flux/${v.kind}/${v.namespace}/${v.name}/sync-with-source`,
   errorMessage: 'Failed to sync with source',
   successMessage: 'Sync with source triggered',
-  getInvalidateKeys: (v) => [
+  getInvalidateKeys: v => [
     ...fluxInvalidateKeys(v),
     // Also invalidate source resources as they were reconciled too
     ['resources', 'gitrepositories'],
@@ -1829,28 +2250,28 @@ export const useFluxSyncWithSource = createGitOpsMutation<FluxResourceVars>({
 // ============================================================================
 
 export const useArgoSync = createGitOpsMutation<ArgoAppVars>({
-  getPath: (v) => `/argo/applications/${v.namespace}/${v.name}/sync`,
+  getPath: v => `/argo/applications/${v.namespace}/${v.name}/sync`,
   errorMessage: 'Failed to trigger sync',
   successMessage: 'Sync initiated',
   getInvalidateKeys: argoInvalidateKeys,
 })
 
 export const useArgoTerminate = createGitOpsMutation<ArgoAppVars>({
-  getPath: (v) => `/argo/applications/${v.namespace}/${v.name}/terminate`,
+  getPath: v => `/argo/applications/${v.namespace}/${v.name}/terminate`,
   errorMessage: 'Failed to terminate sync',
   successMessage: 'Sync terminated',
   getInvalidateKeys: argoInvalidateKeys,
 })
 
 export const useArgoSuspend = createGitOpsMutation<ArgoAppVars>({
-  getPath: (v) => `/argo/applications/${v.namespace}/${v.name}/suspend`,
+  getPath: v => `/argo/applications/${v.namespace}/${v.name}/suspend`,
   errorMessage: 'Failed to suspend application',
   successMessage: 'Application suspended',
   getInvalidateKeys: argoInvalidateKeys,
 })
 
 export const useArgoResume = createGitOpsMutation<ArgoAppVars>({
-  getPath: (v) => `/argo/applications/${v.namespace}/${v.name}/resume`,
+  getPath: v => `/argo/applications/${v.namespace}/${v.name}/resume`,
   errorMessage: 'Failed to resume application',
   successMessage: 'Application resumed',
   getInvalidateKeys: argoInvalidateKeys,
@@ -1861,13 +2282,26 @@ export function useArgoRefresh() {
   const queryClient = useQueryClient()
 
   return useMutation({
-    mutationFn: async ({ namespace, name, hard = false }: { namespace: string; name: string; hard?: boolean }) => {
+    mutationFn: async ({
+      namespace,
+      name,
+      hard = false,
+    }: {
+      namespace: string
+      name: string
+      hard?: boolean
+    }) => {
       const params = hard ? '?type=hard' : ''
-      const response = await fetch(`${API_BASE}/argo/applications/${namespace}/${name}/refresh${params}`, {
-        method: 'POST',
-      })
+      const response = await fetch(
+        `${API_BASE}/argo/applications/${namespace}/${name}/refresh${params}`,
+        {
+          method: 'POST',
+        }
+      )
       if (!response.ok) {
-        const error = await response.json().catch(() => ({ error: 'Unknown error' }))
+        const error = await response
+          .json()
+          .catch(() => ({ error: 'Unknown error' }))
         throw new Error(error.error || `HTTP ${response.status}`)
       }
       return response.json()
@@ -1877,8 +2311,17 @@ export function useArgoRefresh() {
       successMessage: 'Application refreshed',
     },
     onSuccess: (_, variables) => {
-      queryClient.invalidateQueries({ queryKey: ['resources', 'applications'] })
-      queryClient.invalidateQueries({ queryKey: ['resource', 'applications', variables.namespace, variables.name] })
+      queryClient.invalidateQueries({
+        queryKey: ['resources', 'applications'],
+      })
+      queryClient.invalidateQueries({
+        queryKey: [
+          'resource',
+          'applications',
+          variables.namespace,
+          variables.name,
+        ],
+      })
     },
   })
 }
@@ -1918,24 +2361,34 @@ export function useSwitchContext() {
   return useMutation<ClusterInfo, Error, { name: string }>({
     mutationFn: async ({ name }) => {
       const controller = new AbortController()
-      const timeoutId = setTimeout(() => controller.abort(), CONTEXT_SWITCH_TIMEOUT)
+      const timeoutId = setTimeout(
+        () => controller.abort(),
+        CONTEXT_SWITCH_TIMEOUT
+      )
 
       try {
-        const response = await fetch(`${API_BASE}/contexts/${encodeURIComponent(name)}`, {
-          method: 'POST',
-          signal: controller.signal,
-        })
+        const response = await fetch(
+          `${API_BASE}/contexts/${encodeURIComponent(name)}`,
+          {
+            method: 'POST',
+            signal: controller.signal,
+          }
+        )
         clearTimeout(timeoutId)
 
         if (!response.ok) {
-          const error = await response.json().catch(() => ({ error: 'Unknown error' }))
+          const error = await response
+            .json()
+            .catch(() => ({ error: 'Unknown error' }))
           throw new Error(error.error || `HTTP ${response.status}`)
         }
         return response.json()
       } catch (error) {
         clearTimeout(timeoutId)
         if (error instanceof Error && error.name === 'AbortError') {
-          throw new Error('Context switch timed out. The cluster may be unreachable.')
+          throw new Error(
+            'Context switch timed out. The cluster may be unreachable.'
+          )
         }
         throw error
       }
@@ -1976,7 +2429,13 @@ export function useImageMetadata(
   if (pullSecrets.length > 0) params.set('pullSecrets', pullSecrets.join(','))
 
   return useQuery<ImageMetadata>({
-    queryKey: ['image-metadata', image, namespace, podName, pullSecrets.join(',')],
+    queryKey: [
+      'image-metadata',
+      image,
+      namespace,
+      podName,
+      pullSecrets.join(','),
+    ],
     queryFn: () => fetchJSON(`/images/metadata?${params.toString()}`),
     enabled: enabled && Boolean(image),
     staleTime: 60000, // 1 minute - metadata is lightweight
@@ -2001,7 +2460,13 @@ export function useImageFilesystem(
   const shouldFetch = enabled && Boolean(image)
 
   return useQuery<ImageFilesystem>({
-    queryKey: ['image-filesystem', image, namespace, podName, pullSecrets.join(',')],
+    queryKey: [
+      'image-filesystem',
+      image,
+      namespace,
+      podName,
+      pullSecrets.join(','),
+    ],
     // Use skipToken to completely prevent the query from running when disabled
     queryFn: shouldFetch
       ? () => fetchJSON(`/images/inspect?${params.toString()}`)
@@ -2055,12 +2520,24 @@ export function useWorkloadLogs(
   const params = new URLSearchParams()
   if (options?.container) params.set('container', options.container)
   if (options?.tailLines) params.set('tailLines', String(options.tailLines))
-  if (options?.sinceSeconds) params.set('sinceSeconds', String(options.sinceSeconds))
+  if (options?.sinceSeconds)
+    params.set('sinceSeconds', String(options.sinceSeconds))
   const queryString = params.toString()
 
   return useQuery<WorkloadLogsResponse>({
-    queryKey: ['workload-logs', kind, namespace, name, options?.container, options?.tailLines, options?.sinceSeconds],
-    queryFn: () => fetchJSON(`/workloads/${kind}/${namespace}/${name}/logs${queryString ? `?${queryString}` : ''}`),
+    queryKey: [
+      'workload-logs',
+      kind,
+      namespace,
+      name,
+      options?.container,
+      options?.tailLines,
+      options?.sinceSeconds,
+    ],
+    queryFn: () =>
+      fetchJSON(
+        `/workloads/${kind}/${namespace}/${name}/logs${queryString ? `?${queryString}` : ''}`
+      ),
     enabled: Boolean(kind && namespace && name),
     staleTime: 5000,
   })
@@ -2080,10 +2557,13 @@ export function createWorkloadLogStream(
   const params = new URLSearchParams()
   if (options?.container) params.set('container', options.container)
   if (options?.tailLines) params.set('tailLines', String(options.tailLines))
-  if (options?.sinceSeconds) params.set('sinceSeconds', String(options.sinceSeconds))
+  if (options?.sinceSeconds)
+    params.set('sinceSeconds', String(options.sinceSeconds))
   const queryString = params.toString()
 
-  return new EventSource(`${API_BASE}/workloads/${kind}/${namespace}/${name}/logs/stream${queryString ? `?${queryString}` : ''}`)
+  return new EventSource(
+    `${API_BASE}/workloads/${kind}/${namespace}/${name}/logs/stream${queryString ? `?${queryString}` : ''}`
+  )
 }
 
 // ============================================================================

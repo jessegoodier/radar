@@ -73,12 +73,6 @@ func handleSummary(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	// If both queries returned empty results, OpenCost metrics aren't available
-	if len(cpuResult.Series) == 0 && len(memResult.Series) == 0 {
-		writeJSON(w, http.StatusOK, CostSummary{Available: false, Reason: ReasonNoMetrics})
-		return
-	}
-
 	// Query actual CPU usage cost (for efficiency calculation)
 	// cAdvisor metrics use "instance" for the node hostname, while OpenCost uses "node",
 	// so we label_replace to bridge the join.
@@ -107,10 +101,14 @@ func handleSummary(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	// Query storage (PV) cost per namespace
+	// Query storage (PV/PVC) cost per namespace.
+	// pod_pvc_allocation is bytes allocated to a mounted PVC, so convert to GiB before
+	// multiplying by the per-GiB PV hourly rate.
+	// label_replace handles honor_labels=false setups where Prometheus renames the original
+	// namespace label to exported_namespace and sets namespace to the scrape target's namespace.
 	storageMap := make(map[string]float64)
 	storageResult, err := client.Query(r.Context(),
-		`sum by (namespace) (pv_hourly_cost * on(persistentvolume) group_left(namespace) kube_persistentvolume_claim_ref)`)
+		`sum by (namespace) (label_replace(avg_over_time(pod_pvc_allocation{namespace!=""}[1h]), "namespace", "$1", "exported_namespace", "(.+)") / 1073741824 * on(persistentvolume) group_left() pv_hourly_cost)`)
 	if err == nil {
 		for _, s := range storageResult.Series {
 			ns := s.Labels["namespace"]
@@ -120,43 +118,82 @@ func handleSummary(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
+	// Query GPU allocation cost per namespace.
+	gpuMap := make(map[string]float64)
+	gpuResult, err := client.Query(r.Context(),
+		`sum by (namespace) (label_replace(avg_over_time(container_gpu_allocation{namespace!=""}[1h]), "namespace", "$1", "exported_namespace", "(.+)") * on(node) group_left() node_gpu_hourly_cost)`)
+	if err == nil {
+		for _, s := range gpuResult.Series {
+			ns := s.Labels["namespace"]
+			if ns != "" && len(s.DataPoints) > 0 {
+				gpuMap[ns] = s.DataPoints[len(s.DataPoints)-1].Value
+			}
+		}
+	}
+
+	// If all cost queries returned empty results, OpenCost metrics aren't available.
+	if len(cpuResult.Series) == 0 && len(memResult.Series) == 0 && len(storageMap) == 0 && len(gpuMap) == 0 {
+		writeJSON(w, http.StatusOK, CostSummary{Available: false, Reason: ReasonNoMetrics})
+		return
+	}
+
 	// Build per-namespace cost map
 	nsMap := make(map[string]*NamespaceCost)
-
-	for _, s := range cpuResult.Series {
-		ns := s.Labels["namespace"]
+	ensureNamespace := func(ns string) *NamespaceCost {
 		if ns == "" {
-			continue
+			return nil
 		}
 		if _, ok := nsMap[ns]; !ok {
 			nsMap[ns] = &NamespaceCost{Name: ns}
 		}
+		return nsMap[ns]
+	}
+
+	for _, s := range cpuResult.Series {
+		ns := s.Labels["namespace"]
+		nc := ensureNamespace(ns)
+		if nc == nil {
+			continue
+		}
 		if len(s.DataPoints) > 0 {
-			nsMap[ns].CPUCost = s.DataPoints[len(s.DataPoints)-1].Value
+			nc.CPUCost = s.DataPoints[len(s.DataPoints)-1].Value
 		}
 	}
 
 	for _, s := range memResult.Series {
 		ns := s.Labels["namespace"]
-		if ns == "" {
+		nc := ensureNamespace(ns)
+		if nc == nil {
 			continue
 		}
-		if _, ok := nsMap[ns]; !ok {
-			nsMap[ns] = &NamespaceCost{Name: ns}
-		}
 		if len(s.DataPoints) > 0 {
-			nsMap[ns].MemoryCost = s.DataPoints[len(s.DataPoints)-1].Value
+			nc.MemoryCost = s.DataPoints[len(s.DataPoints)-1].Value
 		}
 	}
 
+	for ns, storageCost := range storageMap {
+		nc := ensureNamespace(ns)
+		if nc == nil {
+			continue
+		}
+		nc.StorageCost = storageCost
+	}
+
+	for ns, gpuCost := range gpuMap {
+		nc := ensureNamespace(ns)
+		if nc == nil {
+			continue
+		}
+		nc.GPUCost = gpuCost
+	}
+
 	// Calculate totals
-	var totalHourlyCost, totalStorageCost, totalUsageCost, totalAllocCost float64
+	var totalHourlyCost, totalStorageCost, totalGPUCost, totalUsageCost, totalAllocCost float64
 	namespaces := make([]NamespaceCost, 0, len(nsMap))
 	for _, nc := range nsMap {
-		nc.HourlyCost = nc.CPUCost + nc.MemoryCost
-		nc.StorageCost = storageMap[nc.Name]
-		nc.HourlyCost += nc.StorageCost
+		nc.HourlyCost = nc.CPUCost + nc.MemoryCost + nc.StorageCost + nc.GPUCost
 		totalStorageCost += nc.StorageCost
+		totalGPUCost += nc.GPUCost
 
 		// Efficiency
 		nc.CPUUsageCost = cpuUsageMap[nc.Name]
@@ -211,12 +248,14 @@ func handleSummary(w http.ResponseWriter, r *http.Request) {
 	// Round to 4 decimal places for cleaner JSON
 	totalHourlyCost = roundTo(totalHourlyCost, 4)
 	totalStorageCost = roundTo(totalStorageCost, 4)
+	totalGPUCost = roundTo(totalGPUCost, 4)
 	totalIdleCost = roundTo(totalIdleCost, 4)
 	for i := range namespaces {
 		namespaces[i].HourlyCost = roundTo(namespaces[i].HourlyCost, 4)
 		namespaces[i].CPUCost = roundTo(namespaces[i].CPUCost, 4)
 		namespaces[i].MemoryCost = roundTo(namespaces[i].MemoryCost, 4)
 		namespaces[i].StorageCost = roundTo(namespaces[i].StorageCost, 4)
+		namespaces[i].GPUCost = roundTo(namespaces[i].GPUCost, 4)
 		namespaces[i].CPUUsageCost = roundTo(namespaces[i].CPUUsageCost, 4)
 		namespaces[i].MemoryUsageCost = roundTo(namespaces[i].MemoryUsageCost, 4)
 		namespaces[i].IdleCost = roundTo(namespaces[i].IdleCost, 4)
@@ -228,6 +267,7 @@ func handleSummary(w http.ResponseWriter, r *http.Request) {
 		Window:            "1h",
 		TotalHourlyCost:   totalHourlyCost,
 		TotalStorageCost:  totalStorageCost,
+		TotalGPUCost:      totalGPUCost,
 		TotalIdleCost:     totalIdleCost,
 		ClusterEfficiency: clusterEfficiency,
 		Namespaces:        namespaces,
@@ -309,6 +349,17 @@ func handleWorkloads(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
+	// Query per-pod GPU cost in this namespace.
+	gpuQuery := `sum by (pod) ((avg_over_time(container_gpu_allocation{exported_namespace="` + safeNS + `"}[1h]) or avg_over_time(container_gpu_allocation{namespace="` + safeNS + `", exported_namespace=""}[1h])) * on(node) group_left() node_gpu_hourly_cost)`
+	gpuResult, gpuErr := client.Query(r.Context(), gpuQuery)
+
+	// Query per-pod PVC-backed storage cost in this namespace.
+	// Use "or" to handle both honor_labels configurations:
+	//   exported_namespace="X"  → honor_labels=false (namespace was renamed)
+	//   namespace="X", exported_namespace=""  → honor_labels=true (no renaming, label absent)
+	storageQuery := `sum by (pod) ((avg_over_time(pod_pvc_allocation{exported_namespace="` + safeNS + `"}[1h]) or avg_over_time(pod_pvc_allocation{namespace="` + safeNS + `", exported_namespace=""}[1h])) / 1073741824 * on(persistentvolume) group_left() pv_hourly_cost)`
+	storageResult, storageErr := client.Query(r.Context(), storageQuery)
+
 	// Query per-pod CPU usage cost (for efficiency)
 	podCPUUsage := make(map[string]float64)
 	cpuUsageQuery := `sum by (pod) (label_replace(rate(container_cpu_usage_seconds_total{container!="", namespace="` + safeNS + `"}[1h]), "node", "$1", "instance", "(.+?)(?::\\d+)?$") * on(node) group_left() node_cpu_hourly_cost)`
@@ -339,34 +390,67 @@ func handleWorkloads(w http.ResponseWriter, r *http.Request) {
 	type podCost struct {
 		cpuCost     float64
 		memoryCost  float64
+		storageCost float64
+		gpuCost     float64
 		cpuUsage    float64
 		memoryUsage float64
 	}
 	podCosts := make(map[string]*podCost)
-
-	for _, s := range cpuResult.Series {
-		pod := s.Labels["pod"]
+	ensurePod := func(pod string) *podCost {
 		if pod == "" {
-			continue
+			return nil
 		}
 		if _, ok := podCosts[pod]; !ok {
 			podCosts[pod] = &podCost{}
 		}
+		return podCosts[pod]
+	}
+
+	for _, s := range cpuResult.Series {
+		pod := s.Labels["pod"]
+		pc := ensurePod(pod)
+		if pc == nil {
+			continue
+		}
 		if len(s.DataPoints) > 0 {
-			podCosts[pod].cpuCost = s.DataPoints[len(s.DataPoints)-1].Value
+			pc.cpuCost = s.DataPoints[len(s.DataPoints)-1].Value
 		}
 	}
 
 	for _, s := range memResult.Series {
 		pod := s.Labels["pod"]
-		if pod == "" {
+		pc := ensurePod(pod)
+		if pc == nil {
 			continue
 		}
-		if _, ok := podCosts[pod]; !ok {
-			podCosts[pod] = &podCost{}
-		}
 		if len(s.DataPoints) > 0 {
-			podCosts[pod].memoryCost = s.DataPoints[len(s.DataPoints)-1].Value
+			pc.memoryCost = s.DataPoints[len(s.DataPoints)-1].Value
+		}
+	}
+
+	if gpuErr == nil {
+		for _, s := range gpuResult.Series {
+			pod := s.Labels["pod"]
+			pc := ensurePod(pod)
+			if pc == nil {
+				continue
+			}
+			if len(s.DataPoints) > 0 {
+				pc.gpuCost = s.DataPoints[len(s.DataPoints)-1].Value
+			}
+		}
+	}
+
+	if storageErr == nil {
+		for _, s := range storageResult.Series {
+			pod := s.Labels["pod"]
+			pc := ensurePod(pod)
+			if pc == nil {
+				continue
+			}
+			if len(s.DataPoints) > 0 {
+				pc.storageCost = s.DataPoints[len(s.DataPoints)-1].Value
+			}
 		}
 	}
 
@@ -401,6 +485,8 @@ func handleWorkloads(w http.ResponseWriter, r *http.Request) {
 		}
 		wl.CPUCost += pc.cpuCost
 		wl.MemoryCost += pc.memoryCost
+		wl.StorageCost += pc.storageCost
+		wl.GPUCost += pc.gpuCost
 		wl.CPUUsageCost += pc.cpuUsage
 		wl.MemoryUsageCost += pc.memoryUsage
 		wl.Replicas++
@@ -409,7 +495,7 @@ func handleWorkloads(w http.ResponseWriter, r *http.Request) {
 	// Build sorted result
 	workloads := make([]WorkloadCost, 0, len(workloadMap))
 	for _, wl := range workloadMap {
-		wl.HourlyCost = wl.CPUCost + wl.MemoryCost
+		wl.HourlyCost = wl.CPUCost + wl.MemoryCost + wl.StorageCost + wl.GPUCost
 		// Compute efficiency
 		allocCost := wl.CPUCost + wl.MemoryCost
 		usageCost := wl.CPUUsageCost + wl.MemoryUsageCost
@@ -426,6 +512,8 @@ func handleWorkloads(w http.ResponseWriter, r *http.Request) {
 		wl.HourlyCost = roundTo(wl.HourlyCost, 4)
 		wl.CPUCost = roundTo(wl.CPUCost, 4)
 		wl.MemoryCost = roundTo(wl.MemoryCost, 4)
+		wl.StorageCost = roundTo(wl.StorageCost, 4)
+		wl.GPUCost = roundTo(wl.GPUCost, 4)
 		wl.CPUUsageCost = roundTo(wl.CPUUsageCost, 4)
 		wl.MemoryUsageCost = roundTo(wl.MemoryUsageCost, 4)
 		wl.IdleCost = roundTo(wl.IdleCost, 4)
@@ -527,12 +615,16 @@ func handleTrend(w http.ResponseWriter, r *http.Request) {
 	rangeStr := r.URL.Query().Get("range")
 	start, end, step, label := parseCostTimeRange(rangeStr)
 
-	// Combined CPU + memory allocation cost per namespace over time.
+	// Combined CPU + memory + storage + GPU allocation cost per namespace over time.
 	// label_replace normalises exported_namespace → namespace when honor_labels=false.
 	query := `sum by (namespace) (
   label_replace(avg_over_time(container_cpu_allocation{namespace!=""}[1h]), "namespace", "$1", "exported_namespace", "(.+)") * on(node) group_left() node_cpu_hourly_cost
 ) + sum by (namespace) (
   label_replace(avg_over_time(container_memory_allocation_bytes{namespace!=""}[1h]), "namespace", "$1", "exported_namespace", "(.+)") / 1073741824 * on(node) group_left() node_ram_hourly_cost
+) + sum by (namespace) (
+  label_replace(avg_over_time(pod_pvc_allocation{namespace!=""}[1h]), "namespace", "$1", "exported_namespace", "(.+)") / 1073741824 * on(persistentvolume) group_left() pv_hourly_cost
+) + sum by (namespace) (
+  label_replace(avg_over_time(container_gpu_allocation{namespace!=""}[1h]), "namespace", "$1", "exported_namespace", "(.+)") * on(node) group_left() node_gpu_hourly_cost
 )`
 
 	result, err := client.QueryRange(r.Context(), query, start, end, step)
@@ -662,6 +754,28 @@ func handleNodes(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
+	gpuMap := make(map[string]float64)
+	gpuResult, err := client.Query(r.Context(), `node_gpu_hourly_cost`)
+	if err == nil {
+		for _, s := range gpuResult.Series {
+			node := s.Labels["node"]
+			if node != "" && len(s.DataPoints) > 0 {
+				gpuMap[node] = s.DataPoints[len(s.DataPoints)-1].Value
+			}
+		}
+	}
+
+	gpuCountMap := make(map[string]float64)
+	gpuCountResult, err := client.Query(r.Context(), `node_gpu_count`)
+	if err == nil {
+		for _, s := range gpuCountResult.Series {
+			node := s.Labels["node"]
+			if node != "" && len(s.DataPoints) > 0 {
+				gpuCountMap[node] = s.DataPoints[len(s.DataPoints)-1].Value
+			}
+		}
+	}
+
 	nodes := make([]NodeCost, 0, len(totalResult.Series))
 	for _, s := range totalResult.Series {
 		node := s.Labels["node"]
@@ -675,6 +789,8 @@ func handleNodes(w http.ResponseWriter, r *http.Request) {
 			HourlyCost:   roundTo(s.DataPoints[len(s.DataPoints)-1].Value, 4),
 			CPUCost:      roundTo(cpuMap[node], 4),
 			MemoryCost:   roundTo(memMap[node], 4),
+			GPUCost:      roundTo(gpuMap[node], 4),
+			GPUCount:     roundTo(gpuCountMap[node], 4),
 		}
 		nodes = append(nodes, nc)
 	}

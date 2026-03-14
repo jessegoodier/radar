@@ -16,6 +16,7 @@ type CostSummary struct {
 	Window            string          `json:"window,omitempty"`
 	TotalHourlyCost   float64         `json:"totalHourlyCost,omitempty"`
 	TotalStorageCost  float64         `json:"totalStorageCost,omitempty"`
+	TotalGPUCost      float64         `json:"totalGpuCost,omitempty"`
 	TotalIdleCost     float64         `json:"totalIdleCost,omitempty"`
 	ClusterEfficiency float64         `json:"clusterEfficiency,omitempty"` // 0-100
 	Namespaces        []NamespaceCost `json:"namespaces,omitempty"`
@@ -28,6 +29,7 @@ type NamespaceCost struct {
 	CPUCost         float64 `json:"cpuCost"`
 	MemoryCost      float64 `json:"memoryCost"`
 	StorageCost     float64 `json:"storageCost,omitempty"`
+	GPUCost         float64 `json:"gpuCost,omitempty"`
 	CPUUsageCost    float64 `json:"cpuUsageCost,omitempty"`
 	MemoryUsageCost float64 `json:"memoryUsageCost,omitempty"`
 	Efficiency      float64 `json:"efficiency,omitempty"` // 0-100
@@ -49,6 +51,8 @@ type WorkloadCost struct {
 	HourlyCost      float64 `json:"hourlyCost"`
 	CPUCost         float64 `json:"cpuCost"`
 	MemoryCost      float64 `json:"memoryCost"`
+	StorageCost     float64 `json:"storageCost,omitempty"`
+	GPUCost         float64 `json:"gpuCost,omitempty"`
 	Replicas        int     `json:"replicas"`
 	CPUUsageCost    float64 `json:"cpuUsageCost,omitempty"`
 	MemoryUsageCost float64 `json:"memoryUsageCost,omitempty"`
@@ -91,4 +95,6 @@ type NodeCost struct {
 	HourlyCost   float64 `json:"hourlyCost"`
 	CPUCost      float64 `json:"cpuCost"`
 	MemoryCost   float64 `json:"memoryCost"`
+	GPUCost      float64 `json:"gpuCost,omitempty"`
+	GPUCount     float64 `json:"gpuCount,omitempty"`
 }

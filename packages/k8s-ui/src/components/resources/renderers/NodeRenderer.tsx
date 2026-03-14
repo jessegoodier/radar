@@ -1,8 +1,26 @@
-import { Server, HardDrive, Globe, Tag, Activity, ExternalLink, DollarSign } from 'lucide-react'
+import {
+  Server,
+  HardDrive,
+  Globe,
+  Tag,
+  Activity,
+  ExternalLink,
+  DollarSign,
+} from 'lucide-react'
 import { clsx } from 'clsx'
-import { Section, PropertyList, Property, ConditionsSection, AlertBanner } from '../../ui/drawer-components'
+import {
+  Section,
+  PropertyList,
+  Property,
+  ConditionsSection,
+  AlertBanner,
+} from '../../ui/drawer-components'
 import { MetricsChart } from '../../ui/MetricsChart'
-import { formatMemoryString, parseCPUToNanocores, parseMemoryToBytes } from '../../../utils/format'
+import {
+  formatMemoryString,
+  parseCPUToNanocores,
+  parseMemoryToBytes,
+} from '../../../utils/format'
 import type { MetricsDataPoint } from '../../../types/core'
 
 export interface NodeCostInfo {
@@ -11,6 +29,8 @@ export interface NodeCostInfo {
   region?: string
   cpuCost: number
   memoryCost: number
+  gpuCost?: number
+  gpuCount?: number
 }
 
 interface NodeRendererProps {
@@ -18,7 +38,10 @@ interface NodeRendererProps {
   relationships?: { pods?: any[] }
   onViewPods?: () => void
   metrics?: { usage?: { cpu: string; memory: string }; timestamp?: string }
-  metricsHistory?: { dataPoints?: MetricsDataPoint[]; collectionError?: string }
+  metricsHistory?: {
+    dataPoints?: MetricsDataPoint[]
+    collectionError?: string
+  }
   hideMetricsServer?: boolean
   costData?: NodeCostInfo
 }
@@ -54,7 +77,9 @@ function getNodeProblems(data: any): string[] {
   for (const cond of conditions) {
     // NotReady is a problem when status is not True
     if (cond.type === 'Ready' && cond.status !== 'True') {
-      problems.push(`Node is NotReady${cond.message ? ': ' + cond.message : ''}`)
+      problems.push(
+        `Node is NotReady${cond.message ? ': ' + cond.message : ''}`
+      )
     }
 
     // These conditions are problems when True
@@ -63,13 +88,17 @@ function getNodeProblems(data: any): string[] {
         problems.push(`Disk pressure${cond.message ? ': ' + cond.message : ''}`)
       }
       if (cond.type === 'MemoryPressure') {
-        problems.push(`Memory pressure${cond.message ? ': ' + cond.message : ''}`)
+        problems.push(
+          `Memory pressure${cond.message ? ': ' + cond.message : ''}`
+        )
       }
       if (cond.type === 'PIDPressure') {
         problems.push(`PID pressure${cond.message ? ': ' + cond.message : ''}`)
       }
       if (cond.type === 'NetworkUnavailable') {
-        problems.push(`Network unavailable${cond.message ? ': ' + cond.message : ''}`)
+        problems.push(
+          `Network unavailable${cond.message ? ': ' + cond.message : ''}`
+        )
       }
     }
   }
@@ -92,7 +121,34 @@ function formatCapacityLabel(value: number, unit: string): string {
   return `${normalized} ${unit}`
 }
 
-export function NodeRenderer({ data, relationships, onViewPods, metrics, metricsHistory, hideMetricsServer, costData }: NodeRendererProps) {
+function parseGPUCapacity(
+  capacity: Record<string, string>,
+  allocatable: Record<string, string>
+): number {
+  const keys = new Set([...Object.keys(capacity), ...Object.keys(allocatable)])
+  let total = 0
+
+  for (const key of keys) {
+    if (!key.endsWith('/gpu')) continue
+    const value = allocatable[key] || capacity[key]
+    const parsed = Number(value)
+    if (Number.isFinite(parsed)) {
+      total += parsed
+    }
+  }
+
+  return total
+}
+
+export function NodeRenderer({
+  data,
+  relationships,
+  onViewPods,
+  metrics,
+  metricsHistory,
+  hideMetricsServer,
+  costData,
+}: NodeRendererProps) {
   const status = data.status || {}
   const spec = data.spec || {}
   const metadata = data.metadata || {}
@@ -111,15 +167,24 @@ export function NodeRenderer({ data, relationships, onViewPods, metrics, metrics
   const instanceType = labels['node.kubernetes.io/instance-type']
   const zone = labels['topology.kubernetes.io/zone']
   const region = labels['topology.kubernetes.io/region']
-  const nodePool = labels['cloud.google.com/gke-nodepool'] || labels['eks.amazonaws.com/nodegroup']
+  const nodePool =
+    labels['cloud.google.com/gke-nodepool'] ||
+    labels['eks.amazonaws.com/nodegroup']
   const machineFamily = labels['cloud.google.com/machine-family']
-  const hasPlatformInfo = instanceType || zone || region || nodePool || machineFamily
+  const hasPlatformInfo =
+    instanceType || zone || region || nodePool || machineFamily
   const pricedCPU = capacity.cpu || allocatable.cpu || ''
   const pricedMemory = capacity.memory || allocatable.memory || ''
   const cpuCores = parseCPUToNanocores(pricedCPU) / 1_000_000_000
-  const memoryGiB = parseMemoryToBytes(pricedMemory) / (1024 ** 3)
+  const memoryGiB = parseMemoryToBytes(pricedMemory) / 1024 ** 3
+  const gpuUnits = costData?.gpuCount || parseGPUCapacity(capacity, allocatable)
   const cpuDailyCost = costData ? toDailyCost(costData.cpuCost * cpuCores) : 0
-  const memoryDailyCost = costData ? toDailyCost(costData.memoryCost * memoryGiB) : 0
+  const memoryDailyCost = costData
+    ? toDailyCost(costData.memoryCost * memoryGiB)
+    : 0
+  const gpuDailyCost = costData?.gpuCost
+    ? toDailyCost(costData.gpuCost * (gpuUnits > 0 ? gpuUnits : 1))
+    : 0
 
   return (
     <>
@@ -134,7 +199,10 @@ export function NodeRenderer({ data, relationships, onViewPods, metrics, metrics
           <Property label="OS" value={nodeInfo.osImage} />
           <Property label="Architecture" value={nodeInfo.architecture} />
           <Property label="Kernel" value={nodeInfo.kernelVersion} />
-          <Property label="Container Runtime" value={nodeInfo.containerRuntimeVersion} />
+          <Property
+            label="Container Runtime"
+            value={nodeInfo.containerRuntimeVersion}
+          />
           <Property label="Kubelet" value={nodeInfo.kubeletVersion} />
           <Property label="Kube-Proxy" value={nodeInfo.kubeProxyVersion} />
         </PropertyList>
@@ -151,26 +219,50 @@ export function NodeRenderer({ data, relationships, onViewPods, metrics, metrics
           </div>
           <div className="grid grid-cols-4 gap-2 text-sm">
             <span className="text-theme-text-secondary">CPU</span>
-            <span className="text-theme-text-primary">{capacity.cpu || '-'}</span>
-            <span className="text-theme-text-primary">{allocatable.cpu || '-'}</span>
-            <span className="text-theme-text-primary font-medium">{metrics?.usage?.cpu || '-'}</span>
+            <span className="text-theme-text-primary">
+              {capacity.cpu || '-'}
+            </span>
+            <span className="text-theme-text-primary">
+              {allocatable.cpu || '-'}
+            </span>
+            <span className="text-theme-text-primary font-medium">
+              {metrics?.usage?.cpu || '-'}
+            </span>
           </div>
           <div className="grid grid-cols-4 gap-2 text-sm">
             <span className="text-theme-text-secondary">Memory</span>
-            <span className="text-theme-text-primary">{formatMemory(capacity.memory)}</span>
-            <span className="text-theme-text-primary">{formatMemory(allocatable.memory)}</span>
-            <span className="text-theme-text-primary font-medium">{metrics?.usage?.memory ? formatMemory(metrics.usage.memory) : '-'}</span>
+            <span className="text-theme-text-primary">
+              {formatMemory(capacity.memory)}
+            </span>
+            <span className="text-theme-text-primary">
+              {formatMemory(allocatable.memory)}
+            </span>
+            <span className="text-theme-text-primary font-medium">
+              {metrics?.usage?.memory
+                ? formatMemory(metrics.usage.memory)
+                : '-'}
+            </span>
           </div>
           <div className="grid grid-cols-4 gap-2 text-sm">
             <span className="text-theme-text-secondary">Pods</span>
-            <span className="text-theme-text-primary">{capacity.pods || '-'}</span>
-            <span className="text-theme-text-primary">{allocatable.pods || '-'}</span>
-            <span className="text-theme-text-primary font-medium">{relationships?.pods?.length ?? '-'}</span>
+            <span className="text-theme-text-primary">
+              {capacity.pods || '-'}
+            </span>
+            <span className="text-theme-text-primary">
+              {allocatable.pods || '-'}
+            </span>
+            <span className="text-theme-text-primary font-medium">
+              {relationships?.pods?.length ?? '-'}
+            </span>
           </div>
           <div className="grid grid-cols-4 gap-2 text-sm">
             <span className="text-theme-text-secondary">Ephemeral Storage</span>
-            <span className="text-theme-text-primary">{formatStorage(capacity['ephemeral-storage'])}</span>
-            <span className="text-theme-text-primary">{formatStorage(allocatable['ephemeral-storage'])}</span>
+            <span className="text-theme-text-primary">
+              {formatStorage(capacity['ephemeral-storage'])}
+            </span>
+            <span className="text-theme-text-primary">
+              {formatStorage(allocatable['ephemeral-storage'])}
+            </span>
             <span className="text-theme-text-primary">-</span>
           </div>
         </div>
@@ -188,91 +280,119 @@ export function NodeRenderer({ data, relationships, onViewPods, metrics, metrics
       </Section>
 
       {/* Resource Usage (from metrics-server) — hidden when Prometheus has CPU/memory data */}
-      {!hideMetricsServer && (metrics?.usage || metricsHistory?.dataPoints?.length || metricsHistory?.collectionError) && (
-        <Section title="Resource Usage" icon={Activity} defaultExpanded>
-          {metricsHistory?.collectionError && !metricsHistory?.dataPoints?.length && (
-            <div className="mb-3 rounded-lg border border-yellow-500/30 bg-yellow-500/5 px-3 py-2 text-xs text-yellow-400">
-              <span className="font-medium">Metrics collection error:</span>{' '}
-              <span className="break-all">{metricsHistory.collectionError}</span>
-            </div>
-          )}
-          {metricsHistory?.dataPoints && metricsHistory.dataPoints.length > 0 ? (
-            <div className="space-y-4">
-              {/* CPU Usage with Chart */}
-              <div className="bg-theme-elevated/30 rounded-lg p-3">
-                <div className="text-xs text-theme-text-tertiary mb-1 flex items-center justify-between">
-                  <span>CPU</span>
-                  <span className="text-theme-text-quaternary">
-                    {allocatable.cpu || capacity.cpu || '?'} allocatable
+      {!hideMetricsServer &&
+        (metrics?.usage ||
+          metricsHistory?.dataPoints?.length ||
+          metricsHistory?.collectionError) && (
+          <Section title="Resource Usage" icon={Activity} defaultExpanded>
+            {metricsHistory?.collectionError &&
+              !metricsHistory?.dataPoints?.length && (
+                <div className="mb-3 rounded-lg border border-yellow-500/30 bg-yellow-500/5 px-3 py-2 text-xs text-yellow-400">
+                  <span className="font-medium">Metrics collection error:</span>{' '}
+                  <span className="break-all">
+                    {metricsHistory.collectionError}
                   </span>
                 </div>
-                <MetricsChart
-                  dataPoints={metricsHistory.dataPoints}
-                  type="cpu"
-                  height={60}
-                  showAxis={true}
-                />
-              </div>
+              )}
+            {metricsHistory?.dataPoints &&
+            metricsHistory.dataPoints.length > 0 ? (
+              <div className="space-y-4">
+                {/* CPU Usage with Chart */}
+                <div className="bg-theme-elevated/30 rounded-lg p-3">
+                  <div className="text-xs text-theme-text-tertiary mb-1 flex items-center justify-between">
+                    <span>CPU</span>
+                    <span className="text-theme-text-quaternary">
+                      {allocatable.cpu || capacity.cpu || '?'} allocatable
+                    </span>
+                  </div>
+                  <MetricsChart
+                    dataPoints={metricsHistory.dataPoints}
+                    type="cpu"
+                    height={60}
+                    showAxis={true}
+                  />
+                </div>
 
-              {/* Memory Usage with Chart */}
-              <div className="bg-theme-elevated/30 rounded-lg p-3">
-                <div className="text-xs text-theme-text-tertiary mb-1 flex items-center justify-between">
-                  <span>Memory</span>
-                  <span className="text-theme-text-quaternary">
-                    {formatMemory(allocatable.memory) || formatMemory(capacity.memory) || '?'} allocatable
-                  </span>
-                </div>
-                <MetricsChart
-                  dataPoints={metricsHistory.dataPoints}
-                  type="memory"
-                  height={60}
-                  showAxis={true}
-                />
-              </div>
-            </div>
-          ) : metrics?.usage ? (
-            /* Fallback to simple display if no history yet */
-            <div className="space-y-3">
-              <div className="bg-theme-elevated/30 rounded-lg p-3">
-                <div className="flex items-center justify-between mb-2">
-                  <span className="text-sm font-medium text-theme-text-primary">CPU</span>
-                </div>
-                <div className="flex items-baseline gap-2">
-                  <span className="text-lg font-medium text-blue-400">{metrics.usage.cpu}</span>
-                  <span className="text-sm text-theme-text-tertiary">
-                    / {allocatable.cpu || capacity.cpu || '?'} allocatable
-                  </span>
+                {/* Memory Usage with Chart */}
+                <div className="bg-theme-elevated/30 rounded-lg p-3">
+                  <div className="text-xs text-theme-text-tertiary mb-1 flex items-center justify-between">
+                    <span>Memory</span>
+                    <span className="text-theme-text-quaternary">
+                      {formatMemory(allocatable.memory) ||
+                        formatMemory(capacity.memory) ||
+                        '?'}{' '}
+                      allocatable
+                    </span>
+                  </div>
+                  <MetricsChart
+                    dataPoints={metricsHistory.dataPoints}
+                    type="memory"
+                    height={60}
+                    showAxis={true}
+                  />
                 </div>
               </div>
-              <div className="bg-theme-elevated/30 rounded-lg p-3">
-                <div className="flex items-center justify-between mb-2">
-                  <span className="text-sm font-medium text-theme-text-primary">Memory</span>
+            ) : metrics?.usage ? (
+              /* Fallback to simple display if no history yet */
+              <div className="space-y-3">
+                <div className="bg-theme-elevated/30 rounded-lg p-3">
+                  <div className="flex items-center justify-between mb-2">
+                    <span className="text-sm font-medium text-theme-text-primary">
+                      CPU
+                    </span>
+                  </div>
+                  <div className="flex items-baseline gap-2">
+                    <span className="text-lg font-medium text-blue-400">
+                      {metrics.usage.cpu}
+                    </span>
+                    <span className="text-sm text-theme-text-tertiary">
+                      / {allocatable.cpu || capacity.cpu || '?'} allocatable
+                    </span>
+                  </div>
                 </div>
-                <div className="flex items-baseline gap-2">
-                  <span className="text-lg font-medium text-purple-400">{formatMemory(metrics.usage.memory)}</span>
-                  <span className="text-sm text-theme-text-tertiary">
-                    / {formatMemory(allocatable.memory) || formatMemory(capacity.memory) || '?'} allocatable
-                  </span>
+                <div className="bg-theme-elevated/30 rounded-lg p-3">
+                  <div className="flex items-center justify-between mb-2">
+                    <span className="text-sm font-medium text-theme-text-primary">
+                      Memory
+                    </span>
+                  </div>
+                  <div className="flex items-baseline gap-2">
+                    <span className="text-lg font-medium text-purple-400">
+                      {formatMemory(metrics.usage.memory)}
+                    </span>
+                    <span className="text-sm text-theme-text-tertiary">
+                      /{' '}
+                      {formatMemory(allocatable.memory) ||
+                        formatMemory(capacity.memory) ||
+                        '?'}{' '}
+                      allocatable
+                    </span>
+                  </div>
                 </div>
               </div>
-            </div>
-          ) : (
-            <div className="text-xs text-theme-text-tertiary">Collecting metrics data...</div>
-          )}
-          {metrics?.timestamp && (
-            <div className="mt-2 text-xs text-theme-text-tertiary">
-              Last updated: {new Date(metrics.timestamp).toLocaleTimeString()}
-            </div>
-          )}
-        </Section>
-      )}
+            ) : (
+              <div className="text-xs text-theme-text-tertiary">
+                Collecting metrics data...
+              </div>
+            )}
+            {metrics?.timestamp && (
+              <div className="mt-2 text-xs text-theme-text-tertiary">
+                Last updated: {new Date(metrics.timestamp).toLocaleTimeString()}
+              </div>
+            )}
+          </Section>
+        )}
 
       {/* Addresses */}
       {addresses.length > 0 && (
         <Section title="Addresses" icon={Globe}>
           <PropertyList>
             {addresses.map((addr: any) => (
-              <Property key={`${addr.type}-${addr.address}`} label={addr.type} value={addr.address} />
+              <Property
+                key={`${addr.type}-${addr.address}`}
+                label={addr.type}
+                value={addr.address}
+              />
             ))}
           </PropertyList>
         </Section>
@@ -295,47 +415,100 @@ export function NodeRenderer({ data, relationships, onViewPods, metrics, metrics
       {costData && (
         <Section title="Instance Pricing" icon={DollarSign} defaultExpanded>
           <PropertyList>
-            {costData.instanceType && <Property label="Instance Type" value={costData.instanceType} />}
-            {costData.region && <Property label="Region" value={costData.region} />}
-            <Property label="Daily Cost" value={formatCost(toDailyCost(costData.hourlyCost))} />
-            <Property label="Monthly (est.)" value={`~${formatCost(costData.hourlyCost * 730)}`} />
+            {costData.instanceType && (
+              <Property label="Instance Type" value={costData.instanceType} />
+            )}
+            {costData.region && (
+              <Property label="Region" value={costData.region} />
+            )}
+            <Property
+              label="Daily Cost"
+              value={formatCost(toDailyCost(costData.hourlyCost))}
+            />
+            <Property
+              label="Monthly (est.)"
+              value={`~${formatCost(costData.hourlyCost * 730)}`}
+            />
           </PropertyList>
           <div className="mt-3 pt-3 border-t border-theme-border space-y-1.5">
             <div className="flex items-center justify-between text-sm">
               <span className="text-theme-text-secondary">
                 CPU
-                {cpuCores > 0 && <span className="text-theme-text-tertiary"> ({formatCapacityLabel(cpuCores, 'vCPU')})</span>}
+                {cpuCores > 0 && (
+                  <span className="text-theme-text-tertiary">
+                    {' '}
+                    ({formatCapacityLabel(cpuCores, 'vCPU')})
+                  </span>
+                )}
               </span>
-              <span className="text-theme-text-primary tabular-nums font-medium">{formatCost(cpuDailyCost)}/day</span>
+              <span className="text-theme-text-primary tabular-nums font-medium">
+                {formatCost(cpuDailyCost)}/day
+              </span>
             </div>
             <div className="flex items-center justify-between text-sm">
               <span className="text-theme-text-secondary">
                 Memory
-                {memoryGiB > 0 && <span className="text-theme-text-tertiary"> ({formatCapacityLabel(memoryGiB, 'GiB')})</span>}
+                {memoryGiB > 0 && (
+                  <span className="text-theme-text-tertiary">
+                    {' '}
+                    ({formatCapacityLabel(memoryGiB, 'GiB')})
+                  </span>
+                )}
               </span>
-              <span className="text-theme-text-primary tabular-nums font-medium">{formatCost(memoryDailyCost)}/day</span>
+              <span className="text-theme-text-primary tabular-nums font-medium">
+                {formatCost(memoryDailyCost)}/day
+              </span>
             </div>
+            {gpuDailyCost > 0 && (
+              <div className="flex items-center justify-between text-sm">
+                <span className="text-theme-text-secondary">
+                  GPU
+                  {gpuUnits > 0 && (
+                    <span className="text-theme-text-tertiary">
+                      {' '}
+                      ({formatCapacityLabel(gpuUnits, 'GPU')})
+                    </span>
+                  )}
+                </span>
+                <span className="text-theme-text-primary tabular-nums font-medium">
+                  {formatCost(gpuDailyCost)}/day
+                </span>
+              </div>
+            )}
           </div>
           <div className="mt-2 text-[10px] text-theme-text-quaternary">
             Powered by OpenCost
-            {cpuDailyCost > 0 || memoryDailyCost > 0 ? ' · CPU and memory are estimated from node capacity pricing' : ''}
+            {cpuDailyCost > 0 || memoryDailyCost > 0 || gpuDailyCost > 0
+              ? ' · Component costs are estimated from node capacity pricing'
+              : ''}
           </div>
         </Section>
       )}
 
       {/* Taints */}
       {taints.length > 0 && (
-        <Section title={`Taints (${taints.length})`} defaultExpanded={taints.length <= 5}>
+        <Section
+          title={`Taints (${taints.length})`}
+          defaultExpanded={taints.length <= 5}
+        >
           <div className="space-y-1">
             {taints.map((taint: any, i: number) => (
-              <div key={`${taint.key}-${taint.effect}-${i}`} className="text-sm">
-                <span className={clsx(
-                  'px-2 py-0.5 rounded text-xs',
-                  taint.effect === 'NoSchedule' ? 'bg-yellow-500/20 text-yellow-400' :
-                  taint.effect === 'NoExecute' ? 'bg-red-500/20 text-red-400' :
-                  'bg-blue-500/20 text-blue-400'
-                )}>
-                  {taint.key}{taint.value ? `=${taint.value}` : ''}:{taint.effect}
+              <div
+                key={`${taint.key}-${taint.effect}-${i}`}
+                className="text-sm"
+              >
+                <span
+                  className={clsx(
+                    'px-2 py-0.5 rounded text-xs',
+                    taint.effect === 'NoSchedule'
+                      ? 'bg-yellow-500/20 text-yellow-400'
+                      : taint.effect === 'NoExecute'
+                        ? 'bg-red-500/20 text-red-400'
+                        : 'bg-blue-500/20 text-blue-400'
+                  )}
+                >
+                  {taint.key}
+                  {taint.value ? `=${taint.value}` : ''}:{taint.effect}
                 </span>
               </div>
             ))}
